@@ -1,0 +1,23 @@
+# Flutter
+build/
+.dart_tool/
+.packages
+pubspec.lock
+
+# Android
+.gradle/
+local.properties
+.cxx/
+captures/
+
+# Keystore / signing
+key.properties
+*.keystore
+*.jks
+
+# VS Code
+.vscode/
+
+# Mac
+.DS_Store
+
