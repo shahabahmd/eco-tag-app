@@ -6,7 +6,7 @@
     <application
 
 
-        android:label="Eco-Tag"
+        android:label="login_web_app"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
         <meta-data

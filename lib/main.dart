@@ -1,7 +1,14 @@
 import 'package:flutter/material.dart';
-import 'screens/login_page.dart';
+import 'package:firebase_core/firebase_core.dart';
 
-void main() {
+import 'screens/login_page.dart';
+import 'screens/home_page.dart'; // ✅ add this
+
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+
+  await Firebase.initializeApp();
+
   runApp(const EcoTagApp());
 }
 
@@ -10,9 +17,17 @@ class EcoTagApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return const MaterialApp(
+    return MaterialApp(
       debugShowCheckedModeBanner: false,
-      home: LoginPage(), // first screen
+
+      // ✅ first screen
+      initialRoute: "/",
+
+      // ✅ routes added
+      routes: {
+        "/": (context) => const LoginPage(),
+        "/home": (context) => const HomePage(),
+      },
     );
   }
 }
