@@ -2,11 +2,15 @@ import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
 
 import 'screens/login_page.dart';
-import 'screens/home_page.dart'; // ✅ add this
+import 'screens/signup_page.dart';
+import 'screens/home_page.dart';
+import 'screens/forgot_password_page.dart';
 
 void main() async {
+  // 🔥 REQUIRED
   WidgetsFlutterBinding.ensureInitialized();
 
+  // 🔥 THIS FIXES YOUR ERROR
   await Firebase.initializeApp();
 
   runApp(const EcoTagApp());
@@ -20,13 +24,13 @@ class EcoTagApp extends StatelessWidget {
     return MaterialApp(
       debugShowCheckedModeBanner: false,
 
-      // ✅ first screen
       initialRoute: "/",
 
-      // ✅ routes added
       routes: {
-        "/": (context) => const LoginPage(),
-        "/home": (context) => const HomePage(),
+        "/": (context) => LoginPage(),
+        "/home": (context) => HomePage(),
+        "/signup": (context) => SignupPage(),
+        "/forgot": (context) => ForgotPasswordPage(),
       },
     );
   }

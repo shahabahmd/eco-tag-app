@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 
 class SignupPage extends StatefulWidget {
   const SignupPage({super.key});
@@ -15,20 +16,61 @@ class _SignupPageState extends State<SignupPage> {
 
   bool hide1 = true;
   bool hide2 = true;
+  bool loading = false;
 
-  void signup() {
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text("Account created successfully 🌿")),
-    );
+  final FirebaseAuth _auth = FirebaseAuth.instance;
 
-    Navigator.pop(context); // go back to login
+  // 🔥 FIREBASE SIGNUP FUNCTION
+  Future<void> signup() async {
+    if (pass.text != confirm.text) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text("Passwords do not match ❌")));
+      return;
+    }
+
+    try {
+      setState(() => loading = true);
+
+      // Create user
+      final userCredential = await _auth.createUserWithEmailAndPassword(
+        email: email.text.trim(),
+        password: pass.text.trim(),
+      );
+
+      // Save display name
+      await userCredential.user!.updateDisplayName(name.text.trim());
+
+      setState(() => loading = false);
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("Account created successfully 🌿")),
+      );
+
+      Navigator.pop(context); // back to login
+    } on FirebaseAuthException catch (e) {
+      setState(() => loading = false);
+
+      String message = "Signup failed";
+
+      if (e.code == 'email-already-in-use') {
+        message = "Email already exists";
+      } else if (e.code == 'weak-password') {
+        message = "Password must be at least 6 characters";
+      } else if (e.code == 'invalid-email') {
+        message = "Invalid email address";
+      }
+
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(message)));
+    }
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       body: Container(
-        // 🌿 same gradient as login
         decoration: const BoxDecoration(
           gradient: LinearGradient(
             colors: [Color(0xFF11998e), Color(0xFF38ef7d)],
@@ -36,7 +78,6 @@ class _SignupPageState extends State<SignupPage> {
             end: Alignment.bottomRight,
           ),
         ),
-
         child: Center(
           child: SingleChildScrollView(
             child: Container(
@@ -49,25 +90,23 @@ class _SignupPageState extends State<SignupPage> {
                   BoxShadow(
                     blurRadius: 20,
                     color: Colors.black.withOpacity(0.08),
-                  )
+                  ),
                 ],
               ),
-
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-
-                  const Icon(Icons.person_add_alt_1,
-                      size: 60, color: Color(0xFF11998e)),
+                  const Icon(
+                    Icons.person_add_alt_1,
+                    size: 60,
+                    color: Color(0xFF11998e),
+                  ),
 
                   const SizedBox(height: 10),
 
                   const Text(
                     "Create Account",
-                    style: TextStyle(
-                      fontSize: 22,
-                      fontWeight: FontWeight.bold,
-                    ),
+                    style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
                   ),
 
                   const SizedBox(height: 25),
@@ -89,15 +128,20 @@ class _SignupPageState extends State<SignupPage> {
 
                   const SizedBox(height: 25),
 
-                  // 🌿 Sign up button
-                  ElevatedButton(
-                    onPressed: signup,
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFF11998e),
-                      foregroundColor: Colors.white,
-                      minimumSize: const Size(double.infinity, 50),
+                  // 🔥 SIGNUP BUTTON
+                  SizedBox(
+                    width: double.infinity,
+                    height: 50,
+                    child: ElevatedButton(
+                      onPressed: loading ? null : signup,
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(0xFF11998e),
+                        foregroundColor: Colors.white,
+                      ),
+                      child: loading
+                          ? const CircularProgressIndicator(color: Colors.white)
+                          : const Text("Sign Up"),
                     ),
-                    child: const Text("Sign Up"),
                   ),
 
                   const SizedBox(height: 10),
@@ -118,7 +162,7 @@ class _SignupPageState extends State<SignupPage> {
     );
   }
 
-  // 🔹 Reusable text field
+  // 🔹 TEXT FIELD
   Widget buildField(String hint, IconData icon, controller) {
     return TextField(
       controller: controller,
@@ -135,9 +179,13 @@ class _SignupPageState extends State<SignupPage> {
     );
   }
 
-  // 🔹 Reusable password field
+  // 🔹 PASSWORD FIELD
   Widget buildPassword(
-      String hint, controller, bool hide, VoidCallback toggle) {
+    String hint,
+    controller,
+    bool hide,
+    VoidCallback toggle,
+  ) {
     return TextField(
       controller: controller,
       obscureText: hide,
