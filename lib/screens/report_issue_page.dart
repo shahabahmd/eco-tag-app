@@ -1,6 +1,12 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:geolocator/geolocator.dart';
+import '../services/cloudinary_service.dart';
+import '../services/firestore_service.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+
+
 
 class ReportIssuePage extends StatefulWidget {
   const ReportIssuePage({super.key});
@@ -13,12 +19,15 @@ class _ReportIssuePageState extends State<ReportIssuePage> {
   File? image;
   final description = TextEditingController();
   String issueType = "Littering";
+  bool loading = false;
 
   final picker = ImagePicker();
 
+  // ===============================
+  // OPEN CAMERA
+  // ===============================
   Future<void> openCamera() async {
-    final XFile? photo =
-        await picker.pickImage(source: ImageSource.camera);
+    final XFile? photo = await picker.pickImage(source: ImageSource.camera);
 
     if (photo != null) {
       setState(() {
@@ -27,21 +36,56 @@ class _ReportIssuePageState extends State<ReportIssuePage> {
     }
   }
 
-  void submit() {
+  // ===============================
+  // SUBMIT REPORT
+  // ===============================
+  Future<void> submit() async {
     if (image == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("Please capture a photo")),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text("Please capture a photo")));
       return;
     }
 
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text("Issue reported successfully")),
-    );
+    try {
+      // 1. Get location
+      Position position = await Geolocator.getCurrentPosition(
+        desiredAccuracy: LocationAccuracy.high,
+      );
 
-    Navigator.pop(context);
+      // 2. Upload image to Cloudinary
+      String? imageUrl = await CloudinaryService.uploadImage(image!);
+
+      if (imageUrl == null) {
+        throw Exception("Image upload failed");
+      }
+
+      // 3. Save to Firestore
+      await FirebaseFirestore.instance.collection("reports").add({
+        "type": "issue",
+        "issueType": issueType,
+        "description": description.text.trim(),
+        "imageUrl": imageUrl,
+        "lat": position.latitude,
+        "lng": position.longitude,
+        "timestamp": FieldValue.serverTimestamp(),
+      });
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("Issue reported successfully")),
+      );
+
+      Navigator.pop(context);
+    } catch (e) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text("Error: $e")));
+    }
   }
 
+  // ===============================
+  // UI
+  // ===============================
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -76,12 +120,9 @@ class _ReportIssuePageState extends State<ReportIssuePage> {
 
             // ISSUE TYPE
             DropdownButtonFormField(
-              initialValue: issueType,
+              value: issueType,
               items: const [
-                DropdownMenuItem(
-                  value: "Littering",
-                  child: Text("Littering"),
-                ),
+                DropdownMenuItem(value: "Littering", child: Text("Littering")),
                 DropdownMenuItem(
                   value: "Water Pollution",
                   child: Text("Water Pollution"),
@@ -121,11 +162,13 @@ class _ReportIssuePageState extends State<ReportIssuePage> {
               children: [
                 Expanded(
                   child: ElevatedButton(
-                    onPressed: submit,
+                    onPressed: loading ? null : submit,
                     style: ElevatedButton.styleFrom(
                       backgroundColor: Colors.green,
                     ),
-                    child: const Text("Submit Report"),
+                    child: loading
+                        ? const CircularProgressIndicator(color: Colors.white)
+                        : const Text("Submit Report"),
                   ),
                 ),
                 const SizedBox(width: 10),
@@ -139,7 +182,7 @@ class _ReportIssuePageState extends State<ReportIssuePage> {
                   ),
                 ),
               ],
-            )
+            ),
           ],
         ),
       ),

@@ -3,8 +3,7 @@ import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:geolocator/geolocator.dart';
 import 'report_issue_page.dart';
 import 'add_nature_page.dart';
-
-
+import 'package:cloud_firestore/cloud_firestore.dart';
 
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
@@ -23,6 +22,7 @@ class _HomePageState extends State<HomePage> {
   void initState() {
     super.initState();
     getLocation();
+    loadReports();
   }
 
   // 🔹 Get current GPS location
@@ -36,103 +36,152 @@ class _HomePageState extends State<HomePage> {
     });
   }
 
-  // 🔹 Add marker when user taps map
-  void addMarker(LatLng pos) {
-    setState(() {
-      markers.add(
-        Marker(
-          markerId: MarkerId(pos.toString()),
-          position: pos,
-          infoWindow: const InfoWindow(title: "Eco Report 🌿"),
-        ),
+  // 🔹 Load reports from Firestore
+  Future<void> loadReports() async {
+  final snapshot =
+      await FirebaseFirestore.instance.collection("reports").get();
+
+  for (var doc in snapshot.docs) {
+    final data = doc.data();
+
+    BitmapDescriptor markerIcon;
+
+    // Different color for nature
+    if (data['type'] == "nature") {
+      markerIcon = BitmapDescriptor.defaultMarkerWithHue(100);
+    } else {
+      markerIcon = BitmapDescriptor.defaultMarkerWithHue(
+        BitmapDescriptor.hueRed,
       );
-    });
+    }
+
+    final marker = Marker(
+      markerId: MarkerId(doc.id),
+      position: LatLng(data['lat'], data['lng']),
+      icon: markerIcon,
+      infoWindow: InfoWindow(
+        title: data['type'] ?? "Report",
+        snippet: "Tap for details",
+      ),
+      onTap: () {
+        showReportDialog(data);
+      },
+    );
+
+    markers.add(marker);
   }
 
- 
+  setState(() {});
+}
+
+
+  // 🔹 Show image preview when marker tapped
+  void showReportDialog(Map<String, dynamic> data) {
+    showDialog(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: Text(data['type'] ?? "Report"),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (data['imageUrl'] != null)
+              ClipRRect(
+                borderRadius: BorderRadius.circular(10),
+                child: Image.network(
+                  data['imageUrl'],
+                  height: 150,
+                  fit: BoxFit.cover,
+                ),
+              ),
+            const SizedBox(height: 10),
+            Text(data['description'] ?? "No description"),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text("Close"),
+          )
+        ],
+      ),
+    );
+  }
+
+  // 🔹 Add marker manually on tap
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text("Eco-Tag 🌿"),
-        backgroundColor: const Color(0xFF11998e),
-        centerTitle: true,
-      ),
       body: GoogleMap(
-        initialCameraPosition:
-            CameraPosition(target: currentPos, zoom: 14),
-        myLocationEnabled: true,
-        markers: markers,
-        onMapCreated: (controller) => mapController = controller,
-        onTap: addMarker,
-      ),
+  initialCameraPosition: CameraPosition(target: currentPos, zoom: 14),
+  myLocationEnabled: true,
+  markers: markers,
+  onMapCreated: (controller) => mapController = controller,
+)
+,
 
-      // 🔥 Floating add button
-      floatingActionButtonLocation:
-          FloatingActionButtonLocation.startFloat,
+      floatingActionButtonLocation: FloatingActionButtonLocation.startFloat,
+      floatingActionButton: FloatingActionButton(
+        backgroundColor: const Color(0xFF11998e),
+        child: const Icon(Icons.add),
+        onPressed: () {
+          showModalBottomSheet(
+            context: context,
+            shape: const RoundedRectangleBorder(
+              borderRadius:
+                  BorderRadius.vertical(top: Radius.circular(20)),
+            ),
+            builder: (context) {
+              return Container(
+                padding: const EdgeInsets.all(20),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Text(
+                      "Choose Action",
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    const SizedBox(height: 20),
 
-  floatingActionButton: FloatingActionButton(
-  backgroundColor: const Color(0xFF11998e),
-  onPressed: () {
-    showModalBottomSheet(
-      context: context,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      builder: (context) {
-        return Container(
-          padding: const EdgeInsets.all(20),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Text(
-                "Choose Action",
-                style: TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.bold,
+                    // Report Issue
+                    ListTile(
+                      leading:
+                          const Icon(Icons.report, color: Colors.red),
+                      title: const Text("Report Issue"),
+                      onTap: () {
+                        Navigator.pop(context);
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                              builder: (_) => const ReportIssuePage()),
+                        );
+                      },
+                    ),
+
+                    // Add Nature Spot
+                    ListTile(
+                      leading:
+                          const Icon(Icons.eco, color: Colors.green),
+                      title: const Text("Add Nature Spot"),
+                      onTap: () {
+                        Navigator.pop(context);
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                              builder: (_) => const AddNaturePage()),
+                        );
+                      },
+                    ),
+                  ],
                 ),
-              ),
-              const SizedBox(height: 20),
-
-              // Report Issue
-              ListTile(
-                leading: const Icon(Icons.report, color: Colors.red),
-                title: const Text("Report Issue"),
-                onTap: () {
-                  Navigator.pop(context);
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (_) =>  ReportIssuePage(),
-                    ),
-                  );
-                },
-              ),
-
-              // Add Nature Spot
-              ListTile(
-                leading: const Icon(Icons.eco, color: Colors.green),
-                title: const Text("Add Nature Spot"),
-                onTap: () {
-                  Navigator.pop(context);
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (_) => AddNaturePage(),
-                    ),
-                  );
-                },
-              ),
-            ],
-          ),
-        );
-      },
-    );
-  },
-  child: const Icon(Icons.add),
-),
-
+              );
+            },
+          );
+        },
+      ),
     );
   }
 }

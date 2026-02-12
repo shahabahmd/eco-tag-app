@@ -1,6 +1,9 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:geolocator/geolocator.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import '../services/cloudinary_service.dart';
 
 class AddNaturePage extends StatefulWidget {
   const AddNaturePage({super.key});
@@ -13,6 +16,7 @@ class _AddNaturePageState extends State<AddNaturePage> {
   File? image;
   final description = TextEditingController();
   final picker = ImagePicker();
+  bool loading = false;
 
   Future<void> openCamera() async {
     final XFile? photo =
@@ -25,7 +29,7 @@ class _AddNaturePageState extends State<AddNaturePage> {
     }
   }
 
-  void submit() {
+  Future<void> submit() async {
     if (image == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text("Please capture a photo")),
@@ -33,11 +37,39 @@ class _AddNaturePageState extends State<AddNaturePage> {
       return;
     }
 
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text("Nature spot added successfully")),
-    );
+    try {
+      setState(() => loading = true);
 
-    Navigator.pop(context);
+      // 1. Upload to Cloudinary
+      final imageUrl = await CloudinaryService.uploadImage(image!);
+
+      // 2. Get location
+      Position position = await Geolocator.getCurrentPosition();
+
+      // 3. Save to Firestore
+      await FirebaseFirestore.instance.collection("reports").add({
+        "description": description.text,
+        "imageUrl": imageUrl,
+        "lat": position.latitude,
+        "lng": position.longitude,
+        "type": "nature",
+        "timestamp": FieldValue.serverTimestamp(),
+      });
+
+      setState(() => loading = false);
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("Nature spot added 🌿")),
+      );
+
+      Navigator.pop(context);
+    } catch (e) {
+      setState(() => loading = false);
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text("Error: $e")),
+      );
+    }
   }
 
   @override
@@ -51,7 +83,6 @@ class _AddNaturePageState extends State<AddNaturePage> {
         padding: const EdgeInsets.all(16),
         child: Column(
           children: [
-            // IMAGE PREVIEW
             GestureDetector(
               onTap: openCamera,
               child: Container(
@@ -69,10 +100,7 @@ class _AddNaturePageState extends State<AddNaturePage> {
                       ),
               ),
             ),
-
             const SizedBox(height: 20),
-
-            // DESCRIPTION
             TextField(
               controller: description,
               maxLines: 3,
@@ -81,31 +109,15 @@ class _AddNaturePageState extends State<AddNaturePage> {
                 border: OutlineInputBorder(),
               ),
             ),
-
             const SizedBox(height: 20),
-
-            Row(
-              children: [
-                Expanded(
-                  child: ElevatedButton(
-                    onPressed: submit,
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.green,
-                    ),
-                    child: const Text("Submit"),
-                  ),
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: ElevatedButton(
-                    onPressed: () => Navigator.pop(context),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.grey,
-                    ),
-                    child: const Text("Cancel"),
-                  ),
-                ),
-              ],
+            ElevatedButton(
+              onPressed: loading ? null : submit,
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.green,
+              ),
+              child: loading
+                  ? const CircularProgressIndicator(color: Colors.white)
+                  : const Text("Add Nature Spot"),
             )
           ],
         ),
