@@ -40,7 +40,7 @@ dependencies:
   http: ^1.2.0
   google_sign_in: ^6.2.1
   image_picker: ^1.1.2
-
+  geocoding: ^3.0.0
 
 
   # The "flutter_lints" package below contains a set of recommended lints to
