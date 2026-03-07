@@ -5,6 +5,7 @@ import 'package:geocoding/geocoding.dart'; // Import for search functionality
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'report_issue_page.dart';
 import 'add_nature_page.dart';
+import 'nearby_spots_page.dart' as nearby_spots;
 
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
@@ -261,15 +262,34 @@ class _HomePageState extends State<HomePage> {
             ),
           ),
 
-          // 3. CURRENT POSITION BUTTON (Bottom Right)
+          // 3. NEARBY SPOTS AND CURRENT POSITION BUTTONS (Bottom Right)
           Positioned(
             bottom: 30,
             right: 20,
-            child: FloatingActionButton(
-              heroTag: "btn_location", // Unique tag for animation safety
-              backgroundColor: Colors.white,
-              onPressed: getLocation,
-              child: const Icon(Icons.my_location, color: Colors.black87),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                FloatingActionButton(
+                  heroTag: "btn_nearby", // Unique tag
+                  backgroundColor: Colors.white,
+                  onPressed: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => nearby_spots.NearbySpotsPage(currentPos: currentPos),
+                      ),
+                    );
+                  },
+                  child: const Icon(Icons.view_carousel, color: Colors.black87),
+                ),
+                const SizedBox(height: 15),
+                FloatingActionButton(
+                  heroTag: "btn_location", // Unique tag for animation safety
+                  backgroundColor: Colors.white,
+                  onPressed: getLocation,
+                  child: const Icon(Icons.my_location, color: Colors.black87),
+                ),
+              ],
             ),
           ),
 
