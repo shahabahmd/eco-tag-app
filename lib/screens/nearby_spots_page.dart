@@ -4,20 +4,29 @@ import 'package:geolocator/geolocator.dart';
 import 'package:geocoding/geocoding.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 
+// ─── Design Tokens ───────────────────────────────────────────────────────────
+const _kG1         = Color(0xFF4DBB87);
+const _kG2         = Color(0xFF7ED6A7);
+const _kMint       = Color(0xFFEAF7F0);
+const _kOffWhite   = Color(0xFFF8FBF9);
+const _kLightGreen = Color(0xFFBFEAD3);
+const _kTextDark   = Color(0xFF1D3A2C);
+const _kTextMuted  = Color(0xFF7CA48F);
+final _kGradient   = const LinearGradient(colors: [_kG1, _kG2], begin: Alignment.topLeft, end: Alignment.bottomRight);
+final _kShadow     = [BoxShadow(color: Colors.black.withValues(alpha: 0.06), blurRadius: 14, offset: const Offset(0, 5))];
+// ─────────────────────────────────────────────────────────────────────────────
+
 class NearbySpotsPage extends StatefulWidget {
   final LatLng currentPos;
-
   const NearbySpotsPage({super.key, required this.currentPos});
-
   @override
   State<NearbySpotsPage> createState() => _NearbySpotsPageState();
 }
 
 class _NearbySpotsPageState extends State<NearbySpotsPage> {
-  String locationName = "Locating...";
-  String stateName = "";
-  List<Map<String, dynamic>> spots = [];
-  bool isLoading = true;
+  String _locationName = 'Locating…';
+  List<Map<String, dynamic>> _spots = [];
+  bool _isLoading = true;
 
   @override
   void initState() {
@@ -27,304 +36,295 @@ class _NearbySpotsPageState extends State<NearbySpotsPage> {
 
   Future<void> _fetchSpots() async {
     try {
-      // 1. Get Address
-      List<Placemark> placemarks = await placemarkFromCoordinates(
+      final pms = await placemarkFromCoordinates(
           widget.currentPos.latitude, widget.currentPos.longitude);
-      if (placemarks.isNotEmpty) {
-        if (mounted) {
-            setState(() {
-            locationName = placemarks.first.locality ?? "Unknown Location";
-            stateName = placemarks.first.administrativeArea ?? "";
-            });
-        }
+      if (pms.isNotEmpty && mounted) {
+        setState(() => _locationName = pms.first.locality ?? 'Your Location');
       }
 
-      // 2. Query Firestore and Calculate Distance
-      final snapshot = await FirebaseFirestore.instance
-          .collection("reports")
+      final snap = await FirebaseFirestore.instance
+          .collection('reports')
           .where('type', isEqualTo: 'nature')
           .get();
 
-      List<Map<String, dynamic>> fetchedSpots = [];
-      for (var doc in snapshot.docs) {
-        final data = doc.data();
-        if (data['lat'] != null &&
-            data['lng'] != null &&
-            data['imageUrl'] != null) {
-          double distanceInMeters = Geolocator.distanceBetween(
-              widget.currentPos.latitude,
-              widget.currentPos.longitude,
-              data['lat'],
-              data['lng']);
-
-          // Only add if within 5km
-          if (distanceInMeters <= 5000) {
-            data['distanceInMeters'] = distanceInMeters;
-            fetchedSpots.add(data);
-          }
+      final List<Map<String, dynamic>> fetched = [];
+      for (final doc in snap.docs) {
+        final d = doc.data();
+        if (d['lat'] != null && d['lng'] != null && d['imageUrl'] != null) {
+          final dist = Geolocator.distanceBetween(
+            widget.currentPos.latitude, widget.currentPos.longitude,
+            d['lat'], d['lng'],
+          );
+          if (dist <= 5000) fetched.add({...d, 'distanceInMeters': dist});
         }
       }
-
-      // 3. Sort closest first
-      fetchedSpots.sort((a, b) =>
+      fetched.sort((a, b) =>
           (a['distanceInMeters'] as double).compareTo(b['distanceInMeters'] as double));
 
-      if (mounted) {
-        setState(() {
-            spots = fetchedSpots;
-            isLoading = false;
-        });
-      }
+      if (mounted) setState(() { _spots = fetched; _isLoading = false; });
     } catch (e) {
       if (mounted) {
-        setState(() => isLoading = false);
+        setState(() => _isLoading = false);
         ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text("Error fetching spots: $e")));
+          SnackBar(content: Text('Error: $e'),
+            backgroundColor: _kG1, behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))));
       }
     }
   }
 
-  // Same details popup logic to keep consistency as requested
-  void _showSpotDetailsPopup(Map<String, dynamic> data) {
+  void _showDetails(Map<String, dynamic> data) {
     showDialog(
       context: context,
-      builder: (context) {
-        return Dialog(
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-          child: Container(
-            padding: const EdgeInsets.all(20),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                ClipRRect(
-                  borderRadius: BorderRadius.circular(15),
-                  child: Image.network(
-                    data['imageUrl'],
-                    height: 200,
-                    fit: BoxFit.cover,
-                  ),
-                ),
-                const SizedBox(height: 16),
-                Text(
-                  data['type']?.toString().toUpperCase() ?? "NATURE SPOT",
-                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: Color(0xFF11998e)),
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  data['description'] ?? "No description provided.",
-                  style: const TextStyle(fontSize: 16),
-                ),
-                const SizedBox(height: 16),
-                Row(
-                  children: [
-                    const Icon(Icons.location_on, color: Colors.grey, size: 16),
-                    const SizedBox(width: 4),
-                    Expanded(
-                      child: Text(
-                        "Lat: ${data['lat']}\nLng: ${data['lng']}",
-                        style: const TextStyle(color: Colors.grey, fontSize: 12),
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 20),
-                ElevatedButton(
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFF11998e),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(30)),
-                  ),
-                  onPressed: () => Navigator.pop(context),
-                  child: const Text("Close", style: TextStyle(color: Colors.white)),
-                )
-              ],
+      builder: (_) => Dialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+        child: Container(
+          padding: const EdgeInsets.all(20),
+          decoration: BoxDecoration(color: _kOffWhite, borderRadius: BorderRadius.circular(24)),
+          child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+            // Header
+            Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                decoration: BoxDecoration(gradient: _kGradient, borderRadius: BorderRadius.circular(20)),
+                child: const Row(mainAxisSize: MainAxisSize.min, children: [
+                  Icon(Icons.eco_rounded, color: Colors.white, size: 14),
+                  SizedBox(width: 5),
+                  Text('NATURE SPOT', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 11)),
+                ]),
+              ),
+              GestureDetector(
+                onTap: () => Navigator.pop(context),
+                child: Container(width: 32, height: 32,
+                  decoration: BoxDecoration(color: _kLightGreen, shape: BoxShape.circle),
+                  child: const Icon(Icons.close, size: 16, color: _kTextDark)),
+              ),
+            ]),
+            const SizedBox(height: 14),
+            // Image
+            ClipRRect(
+              borderRadius: BorderRadius.circular(18),
+              child: Image.network(data['imageUrl'], height: 200, width: double.infinity, fit: BoxFit.cover),
             ),
-          ),
-        );
-      }
+            const SizedBox(height: 14),
+            const Text('Description',
+              style: TextStyle(color: _kTextMuted, fontSize: 11, fontWeight: FontWeight.bold, letterSpacing: 0.5)),
+            const SizedBox(height: 4),
+            Text(data['description'] ?? 'No description.',
+              style: const TextStyle(color: _kTextDark, fontSize: 15, fontWeight: FontWeight.w500)),
+            const SizedBox(height: 14),
+            Container(
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(color: _kMint, borderRadius: BorderRadius.circular(10)),
+              child: Row(children: [
+                const Icon(Icons.location_on_rounded, color: _kG1, size: 16),
+                const SizedBox(width: 6),
+                Expanded(child: Text(
+                  'Lat: ${data['lat']?.toStringAsFixed(4)}, Lng: ${data['lng']?.toStringAsFixed(4)}',
+                  style: const TextStyle(color: _kTextDark, fontSize: 12, fontWeight: FontWeight.w500))),
+              ]),
+            ),
+            const SizedBox(height: 16),
+            SizedBox(
+              width: double.infinity,
+              child: InkWell(
+                onTap: () => Navigator.pop(context),
+                borderRadius: BorderRadius.circular(16),
+                child: Container(
+                  height: 48,
+                  decoration: BoxDecoration(gradient: _kGradient, borderRadius: BorderRadius.circular(16)),
+                  child: const Center(child: Text('Close',
+                    style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 15))),
+                ),
+              ),
+            ),
+          ]),
+        ),
+      ),
     );
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFFF9FAFB), // Very light gray/off-white background
-      appBar: AppBar(
-        backgroundColor: Colors.transparent,
-        elevation: 0,
-        iconTheme: const IconThemeData(color: Color(0xFF1A1F24)),
-        title: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text(
-              "Nearby Nature Spots",
-              style: TextStyle(
-                  color: Color(0xFF1A1F24),
-                  fontSize: 22,
-                  letterSpacing: -0.5,
-                  fontWeight: FontWeight.w800),
+      backgroundColor: _kMint,
+      body: Column(
+        children: [
+          // ── Gradient Header ─────────────────────────────────────────────
+          Container(
+            width: double.infinity,
+            padding: EdgeInsets.fromLTRB(
+                20, MediaQuery.of(context).padding.top + 16, 20, 28),
+            decoration: BoxDecoration(
+              gradient: _kGradient,
+              borderRadius: const BorderRadius.vertical(bottom: Radius.circular(28)),
             ),
-            Text(
-              "around $locationName",
-              style: const TextStyle(color: Color(0xFF6B7280), fontSize: 14, fontWeight: FontWeight.w500),
-            ),
-          ],
-        ),
-      ),
-      body: isLoading
-          ? const Center(
-              child: CircularProgressIndicator(color: Color(0xFF11998e)))
-          : spots.isEmpty
-              ? Center(
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Container(
-                        padding: const EdgeInsets.all(24),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFFE8F5E9),
-                          shape: BoxShape.circle,
-                        ),
-                        child: const Icon(Icons.nature_people_rounded,
-                            size: 64, color: Color(0xFF11998e)),
-                      ),
-                      const SizedBox(height: 24),
-                      const Text("No nature spots within 5km here.",
-                          style: TextStyle(color: Color(0xFF4B5563), fontSize: 16, fontWeight: FontWeight.w500)),
-                      const SizedBox(height: 8),
-                      const Text("Be the first to add one!",
-                          style: TextStyle(color: Color(0xFF9CA3AF), fontSize: 14)),
-                    ],
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                GestureDetector(
+                  onTap: () => Navigator.pop(context),
+                  child: Container(
+                    width: 38, height: 38,
+                    decoration: BoxDecoration(
+                        color: Colors.white.withValues(alpha: 0.2), shape: BoxShape.circle),
+                    child: const Icon(Icons.arrow_back_ios_new_rounded, color: Colors.white, size: 16),
                   ),
-                )
-              : ListView.builder(
-                  padding: const EdgeInsets.symmetric(
-                      horizontal: 20.0, vertical: 12.0),
-                  itemCount: spots.length,
-                  itemBuilder: (context, index) {
-                    final spot = spots[index];
-                    final distanceKm =
-                        (spot['distanceInMeters'] as double) / 1000.0;
+                ),
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                    const Text('Nearby Nature Spots',
+                      style: TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold, letterSpacing: 0.2)),
+                    const SizedBox(height: 3),
+                    Text('around $_locationName',
+                      style: const TextStyle(color: Colors.white70, fontSize: 13)),
+                  ]),
+                ),
+              ],
+            ),
+          ),
 
-                    return GestureDetector(
-                      onTap: () => _showSpotDetailsPopup(spot), // Can be updated to a bottom sheet later
-                      child: Container(
-                        margin: const EdgeInsets.only(bottom: 24.0),
-                        decoration: BoxDecoration(
-                          color: Colors.white,
-                          borderRadius: BorderRadius.circular(24),
-                          boxShadow: [
-                            BoxShadow(
-                              color: Colors.black.withOpacity(0.04),
-                              blurRadius: 20,
-                              offset: const Offset(0, 10),
-                            ),
-                            BoxShadow(
-                              color: Colors.black.withOpacity(0.02),
-                              blurRadius: 5,
-                              offset: const Offset(0, 2),
-                            ),
-                          ],
-                        ),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            // Big Image
-                            ClipRRect(
-                              borderRadius: const BorderRadius.vertical(
-                                  top: Radius.circular(24)),
-                              child: Stack(
-                                children: [
-                                  Image.network(
-                                    spot['imageUrl'],
-                                    height: 220,
-                                    width: double.infinity,
-                                    fit: BoxFit.cover,
-                                  ),
-                                  // Distance Badge overlaid on image
-                                  Positioned(
-                                    top: 16,
-                                    right: 16,
-                                    child: Container(
-                                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                                      decoration: BoxDecoration(
-                                        color: Colors.white.withOpacity(0.9),
-                                        borderRadius: BorderRadius.circular(20),
-                                        boxShadow: [
-                                          BoxShadow(
-                                            color: Colors.black.withOpacity(0.1),
-                                            blurRadius: 10,
-                                            offset: const Offset(0, 4),
-                                          )
-                                        ]
-                                      ),
-                                      child: Row(
-                                        mainAxisSize: MainAxisSize.min,
-                                        children: [
-                                          const Icon(Icons.location_on_rounded, size: 16, color: Color(0xFF11998e)),
-                                          const SizedBox(width: 4),
-                                          Text(
-                                            "${distanceKm.toStringAsFixed(1)} km",
-                                            style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13, color: Color(0xFF1A1F24)),
-                                          ),
-                                        ],
-                                      ),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                            // Details Row below image
-                            Padding(
-                              padding: const EdgeInsets.all(20.0),
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Row(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
-                                    children: [
-                                      Expanded(
-                                        child: Text(
-                                          // Attempt to extract place name from description if title missing
-                                          spot['description']?.toString().split('.').first ?? "Beautiful Spot",
-                                          style: const TextStyle(
-                                              fontSize: 20,
-                                              letterSpacing: -0.5,
-                                              color: Color(0xFF1A1F24),
-                                              fontWeight: FontWeight.w800),
-                                          maxLines: 1,
-                                          overflow: TextOverflow.ellipsis,
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                  const SizedBox(height: 8),
-                                  Container(
-                                    padding: const EdgeInsets.symmetric(
-                                        horizontal: 10, vertical: 6),
-                                    decoration: BoxDecoration(
-                                      color: const Color(0xFFE8F5E9),
-                                      borderRadius:
-                                          BorderRadius.circular(8),
-                                    ),
-                                    child: Text(
-                                      spot['type']?.toString().toUpperCase() ?? "NATURE",
-                                      style: const TextStyle(
-                                          fontSize: 11,
-                                          letterSpacing: 0.5,
-                                          color: Color(0xFF11998e),
-                                          fontWeight: FontWeight.w800),
-                                    ),
-                                  )
-                                ],
-                              ),
-                            ),
-                          ],
+          // ── Body ────────────────────────────────────────────────────────
+          Expanded(
+            child: _isLoading
+                ? const Center(child: CircularProgressIndicator(color: _kG1))
+                : _spots.isEmpty
+                    ? _EmptyState()
+                    : ListView.builder(
+                        physics: const ClampingScrollPhysics(),
+                        padding: const EdgeInsets.fromLTRB(20, 20, 20, 20),
+                        itemCount: _spots.length,
+                        itemBuilder: (_, i) => _SpotCard(
+                          data: _spots[i],
+                          onTap: () => _showDetails(_spots[i]),
                         ),
                       ),
-                    );
-                  },
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ─── Empty State ──────────────────────────────────────────────────────────────
+class _EmptyState extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Column(mainAxisSize: MainAxisSize.min, children: [
+        Container(
+          width: 80, height: 80,
+          decoration: BoxDecoration(
+            gradient: LinearGradient(colors: [_kG1.withValues(alpha: 0.15), _kG2.withValues(alpha: 0.15)]),
+            shape: BoxShape.circle,
+          ),
+          child: const Icon(Icons.nature_people_rounded, size: 40, color: _kG1),
+        ),
+        const SizedBox(height: 20),
+        const Text('No nature spots within 5 km.',
+          style: TextStyle(color: _kTextDark, fontSize: 16, fontWeight: FontWeight.bold)),
+        const SizedBox(height: 6),
+        const Text('Be the first to add one!',
+          style: TextStyle(color: _kTextMuted, fontSize: 13)),
+      ]),
+    );
+  }
+}
+
+// ─── Spot Card ────────────────────────────────────────────────────────────────
+class _SpotCard extends StatelessWidget {
+  final Map<String, dynamic> data;
+  final VoidCallback onTap;
+  const _SpotCard({required this.data, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    final distKm = ((data['distanceInMeters'] as double) / 1000).toStringAsFixed(1);
+    final title = data['description']?.toString().split('.').first ?? 'Beautiful Spot';
+
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 20),
+        decoration: BoxDecoration(
+          color: _kOffWhite,
+          borderRadius: BorderRadius.circular(24),
+          boxShadow: _kShadow,
+        ),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          // Image
+          ClipRRect(
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+            child: Stack(children: [
+              Image.network(data['imageUrl'], height: 220, width: double.infinity, fit: BoxFit.cover),
+              // Gradient overlay
+              Positioned.fill(child: Container(
+                decoration: BoxDecoration(gradient: LinearGradient(
+                  colors: [Colors.black.withValues(alpha: 0.0), Colors.black.withValues(alpha: 0.25)],
+                  begin: Alignment.topCenter, end: Alignment.bottomCenter,
+                )),
+              )),
+              // Distance badge
+              Positioned(top: 14, right: 14,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withValues(alpha: 0.92),
+                    borderRadius: BorderRadius.circular(20),
+                    boxShadow: _kShadow,
+                  ),
+                  child: Row(mainAxisSize: MainAxisSize.min, children: [
+                    const Icon(Icons.location_on_rounded, size: 14, color: _kG1),
+                    const SizedBox(width: 4),
+                    Text('$distKm km',
+                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: _kTextDark)),
+                  ]),
                 ),
+              ),
+              // Eco badge
+              Positioned(top: 14, left: 14,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                  decoration: BoxDecoration(
+                    gradient: _kGradient, borderRadius: BorderRadius.circular(20)),
+                  child: const Row(mainAxisSize: MainAxisSize.min, children: [
+                    Icon(Icons.eco_rounded, size: 13, color: Colors.white),
+                    SizedBox(width: 4),
+                    Text('NATURE', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 10)),
+                  ]),
+                ),
+              ),
+            ]),
+          ),
+          // Details
+          Padding(
+            padding: const EdgeInsets.fromLTRB(18, 16, 18, 18),
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text(title,
+                maxLines: 1, overflow: TextOverflow.ellipsis,
+                style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold,
+                    color: _kTextDark, letterSpacing: -0.3)),
+              const SizedBox(height: 8),
+              Row(children: [
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                  decoration: BoxDecoration(
+                    color: _kLightGreen.withValues(alpha: 0.5),
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: Text(data['natureType']?.toString() ?? 'Nature',
+                    style: const TextStyle(color: _kG1, fontWeight: FontWeight.bold, fontSize: 11)),
+                ),
+                const Spacer(),
+                const Icon(Icons.touch_app_rounded, size: 14, color: _kTextMuted),
+                const SizedBox(width: 4),
+                const Text('Tap for details', style: TextStyle(color: _kTextMuted, fontSize: 11)),
+              ]),
+            ]),
+          ),
+        ]),
+      ),
     );
   }
 }

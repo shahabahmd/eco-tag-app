@@ -3,290 +3,366 @@ import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:geocoding/geocoding.dart';
 import '../services/cloudinary_service.dart';
-// import '../services/firestore_service.dart'; // Uncomment if you use this separately
+
+// ─── Design Tokens ───────────────────────────────────────────────────────────
+const kG1        = Color(0xFF4DBB87);
+const kG2        = Color(0xFF7ED6A7);
+const kMint      = Color(0xFFEAF7F0);
+const kOffWhite  = Color(0xFFF8FBF9);
+const kLightGreen = Color(0xFFBFEAD3);
+const kTextDark  = Color(0xFF1D3A2C);
+const kTextMuted = Color(0xFF7CA48F);
+
+final kGradient  = const LinearGradient(colors: [kG1, kG2], begin: Alignment.topLeft, end: Alignment.bottomRight);
+final kCardShadow = [BoxShadow(color: Colors.black.withValues(alpha: 0.06), blurRadius: 14, offset: const Offset(0, 5))];
+
+const List<String> _validMunicipalities = [
+  'Adoor', 'Alappuzha', 'Aluva', 'Angamaly', 'Attingal',
+  'Chalakkudy', 'Changanassery', 'Chavakkad', 'Chengannur', 'Cherthala',
+  'Chittur-Thathamangalam', 'Eloor', 'Ettumanoor', 'Feroke', 'Guruvayur',
+  'Haripad', 'Irinjalakuda', 'Iritty', 'Kalamassery', 'Kalpetta',
+  'Kanhangad', 'Karunagappally', 'Kasaragod', 'Kattappana', 'Kayamkulam',
+  'Kodungallur', 'Koduvally', 'Kondotty', 'Kothamangalam', 'Kottakkal',
+  'Kottarakkara', 'Kottayam', 'Koyilandy', 'Kunnamkulam', 'Kunnathunad',
+  'Kuthuparamba', 'Mananthavady', 'Manjeri', 'Mannarkkad', 'Maradu',
+  'Mattannur', 'Mavelikkara', 'Mukkam', 'Muvattupuzha', 'Nedumangad',
+  'Neyyattinkara', 'Nilambur', 'Nileshwaram', 'North Paravur', 'Ottapalam',
+  'Pala', 'Palakkad', 'Parappanangadi', 'Paravur', 'Pathanamthitta',
+  'Pattambi', 'Payyannur', 'Payyoli', 'Perinthalmanna', 'Perumbavoor',
+  'Ponnani', 'Punalur', 'Ramanattukara', 'Shoranur', 'Sulthan Bathery',
+  'Taliparamba', 'Tanur', 'Thalassery', 'Thiruvalla', 'Thodupuzha',
+  'Thrikkakara', 'Thrippunithura', 'Tirur', 'Tirurangadi', 'Vadakara',
+  'Vaikom', 'Valanchery', 'Varkala', 'Wadakkanchery',
+];
+
+Future<String> _getMunicipality(double lat, double lng) async {
+  String out = 'Unknown';
+  try {
+    final pms = await placemarkFromCoordinates(lat, lng);
+    if (pms.isNotEmpty) {
+      final p = pms.first;
+      final names = [p.subLocality, p.locality, p.subAdministrativeArea, p.administrativeArea];
+      outer: for (final n in names) {
+        if (n != null && n.trim().isNotEmpty) {
+          final l = n.trim().toLowerCase();
+          for (final v in _validMunicipalities) {
+            if (l.contains(v.toLowerCase())) { out = v; break outer; }
+          }
+        }
+      }
+      if (out == 'Unknown') {
+        for (final n in names) { if (n != null && n.trim().isNotEmpty) { out = n.trim(); break; } }
+      }
+    }
+  } catch (e) { debugPrint('Geocoding: $e'); }
+  return out;
+}
+// ─────────────────────────────────────────────────────────────────────────────
 
 class ReportIssuePage extends StatefulWidget {
   const ReportIssuePage({super.key});
-
   @override
   State<ReportIssuePage> createState() => _ReportIssuePageState();
 }
 
 class _ReportIssuePageState extends State<ReportIssuePage> {
-  File? image;
-  final descriptionController = TextEditingController();
-  String issueType = "Littering";
-  bool isLoading = false;
+  File? _image;
+  final _desc = TextEditingController();
+  String _issueType = 'Littering';
+  bool _isLoading = false;
+  final _picker = ImagePicker();
 
-  final picker = ImagePicker();
-  final Color ecoGreen = const Color(0xFF11998e);
-  final Color ecoGreenLight = const Color(0xFF38ef7d);
+  @override
+  void dispose() { _desc.dispose(); super.dispose(); }
 
-  // ===============================
-  // OPEN CAMERA
-  // ===============================
-  Future<void> openCamera() async {
-    final XFile? photo = await picker.pickImage(source: ImageSource.camera);
-    if (photo != null) {
-      setState(() {
-        image = File(photo.path);
-      });
-    }
+  Future<void> _openCamera() async {
+    final x = await _picker.pickImage(source: ImageSource.camera);
+    if (x != null) setState(() => _image = File(x.path));
   }
 
-  // ===============================
-  // SUBMIT REPORT
-  // ===============================
-  Future<void> submit() async {
-    if (image == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text("📸 Please capture a photo first!"),
-          backgroundColor: Colors.redAccent,
-        ),
-      );
-      return;
-    }
-
-    if (descriptionController.text.trim().isEmpty) {
-       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text("📝 Please add a short description."),
-          backgroundColor: Colors.orange,
-        ),
-      );
-      return;
-    }
-
-    setState(() => isLoading = true);
-
+  Future<void> _submit() async {
+    if (_image == null) { _snack('📸 Please capture a photo first!', isError: true); return; }
+    if (_desc.text.trim().isEmpty) { _snack('📝 Please add a short description.', isWarn: true); return; }
+    setState(() => _isLoading = true);
     try {
-      // 1. Get location
-      Position position = await Geolocator.getCurrentPosition(
-        desiredAccuracy: LocationAccuracy.high,
-      );
-
-      // 2. Upload image
-      String? imageUrl = await CloudinaryService.uploadImage(image!);
-
-      if (imageUrl == null) throw Exception("Image upload failed");
-
-      // 3. Save to Firestore
-      await FirebaseFirestore.instance.collection("reports").add({
-        "type": "issue", // Distinguishes from 'nature' spots
-        "issueType": issueType,
-        "description": descriptionController.text.trim(),
-        "imageUrl": imageUrl,
-        "lat": position.latitude,
-        "lng": position.longitude,
-        "timestamp": FieldValue.serverTimestamp(),
-        "status": "pending", // Good for admin tracking
+      final pos = await Geolocator.getCurrentPosition(desiredAccuracy: LocationAccuracy.high);
+      final url = await CloudinaryService.uploadImage(_image!);
+      if (url == null) throw Exception('Image upload failed');
+      final mun = await _getMunicipality(pos.latitude, pos.longitude);
+      final uid = FirebaseAuth.instance.currentUser?.uid;
+      await FirebaseFirestore.instance.collection('reports').add({
+        'userId': uid, 'type': 'issue', 'issueType': _issueType,
+        'description': _desc.text.trim(), 'imageUrl': url,
+        'lat': pos.latitude, 'lng': pos.longitude,
+        'municipality': mun, 'timestamp': FieldValue.serverTimestamp(), 'status': 'pending',
       });
-
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: const Text("✅ Issue reported successfully!"),
-            backgroundColor: ecoGreen,
-          ),
-        );
-        Navigator.pop(context);
-      }
+      if (mounted) { _snack('✅ Issue reported!'); Navigator.pop(context); }
     } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text("Error: $e"), backgroundColor: Colors.red),
-        );
-      }
+      if (mounted) _snack('Error: $e', isError: true);
     } finally {
-      if (mounted) setState(() => isLoading = false);
+      if (mounted) setState(() => _isLoading = false);
     }
   }
 
-  // ===============================
-  // UI WIDGETS
-  // ===============================
+  void _snack(String msg, {bool isError = false, bool isWarn = false}) {
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      content: Text(msg, style: const TextStyle(fontWeight: FontWeight.w500)),
+      backgroundColor: isError ? Colors.redAccent : isWarn ? Colors.orange : kG1,
+      behavior: SnackBarBehavior.floating,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+    ));
+  }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.grey[50], // Very light grey background
-      appBar: AppBar(
-        title: const Text("Report Issue", style: TextStyle(fontWeight: FontWeight.bold)),
-        backgroundColor: ecoGreen,
-        elevation: 0,
-        centerTitle: true,
-      ),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(20),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text(
-              "Help us keep nature clean.",
-              style: TextStyle(fontSize: 16, color: Colors.grey),
-            ),
-            const SizedBox(height: 20),
-
-            // 1. IMAGE UPLOAD CARD
-            Center(
-              child: GestureDetector(
-                onTap: openCamera,
-                child: Container(
-                  height: 220,
-                  width: double.infinity,
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(20),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.grey.withOpacity(0.2),
-                        blurRadius: 10,
-                        offset: const Offset(0, 5),
-                      ),
-                    ],
-                    border: Border.all(
-                      color: image == null ? Colors.grey.shade300 : ecoGreen,
-                      width: 2,
+      backgroundColor: kMint,
+      body: CustomScrollView(
+        physics: const BouncingScrollPhysics(),
+        slivers: [
+          // ─── Gradient SliverAppBar ────────────────────────────────────────
+          SliverAppBar(
+            expandedHeight: 160,
+            pinned: true,
+            iconTheme: const IconThemeData(color: Colors.white),
+            flexibleSpace: FlexibleSpaceBar(
+              background: Container(
+                decoration: BoxDecoration(gradient: kGradient),
+                child: SafeArea(
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(24, 20, 24, 0),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: const [
+                        SizedBox(height: 30),
+                        Text('Report Environmental Issue',
+                          style: TextStyle(color: Colors.white, fontSize: 22, fontWeight: FontWeight.bold, letterSpacing: 0.2)),
+                        SizedBox(height: 6),
+                        Text('Help us protect nature.', style: TextStyle(color: Colors.white70, fontSize: 14)),
+                      ],
                     ),
                   ),
-                  child: image == null
-                      ? Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Icon(Icons.add_a_photo_rounded, size: 50, color: ecoGreen),
-                            const SizedBox(height: 10),
-                            Text(
-                              "Tap to take photo",
-                              style: TextStyle(color: Colors.grey[600], fontWeight: FontWeight.w500),
-                            ),
-                          ],
-                        )
-                      : ClipRRect(
-                          borderRadius: BorderRadius.circular(18),
-                          child: Stack(
-                            fit: StackFit.expand,
-                            children: [
-                              Image.file(image!, fit: BoxFit.cover),
-                              Container(
-                                color: Colors.black26, // Dim overlay
-                                alignment: Alignment.center,
-                                child: const Icon(Icons.edit, color: Colors.white, size: 40),
-                              ),
-                            ],
-                          ),
-                        ),
                 ),
               ),
             ),
-            
-            const SizedBox(height: 30),
-
-            // 2. FORM FIELDS
-            const Text("Issue Details", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.black87)),
-            const SizedBox(height: 15),
-
-            // Dropdown
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 15, vertical: 5),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: Colors.grey.shade300),
-              ),
-              child: DropdownButtonHideUnderline(
-                child: DropdownButton<String>(
-                  value: issueType,
-                  isExpanded: true,
-                  icon: Icon(Icons.arrow_drop_down_circle, color: ecoGreen),
-                  items: ["Littering", "Water Pollution", "Tree Damage", "Illegal Dumping", "Other"]
-                      .map((String value) {
-                    return DropdownMenuItem<String>(
-                      value: value,
-                      child: Row(
-                        children: [
-                          Icon(_getIconForType(value), color: Colors.grey[700], size: 20),
-                          const SizedBox(width: 10),
-                          Text(value),
-                        ],
-                      ),
-                    );
-                  }).toList(),
-                  onChanged: (newValue) => setState(() => issueType = newValue!),
-                ),
-              ),
+            shape: const RoundedRectangleBorder(
+              borderRadius: BorderRadius.vertical(bottom: Radius.circular(28)),
             ),
+          ),
 
-            const SizedBox(height: 15),
+          // ─── Body ─────────────────────────────────────────────────────────
+          SliverPadding(
+            padding: const EdgeInsets.fromLTRB(20, 24, 20, 32),
+            sliver: SliverList(delegate: SliverChildListDelegate([
+              // Photo card
+              EcoPhotoCard(image: _image, onTap: _openCamera, emptyIcon: Icons.add_a_photo_rounded, emptyLabel: 'Tap to take photo'),
+              const SizedBox(height: 24),
 
-            // Description Input
-            TextField(
-              controller: descriptionController,
-              maxLines: 4,
-              decoration: InputDecoration(
-                hintText: "Describe the issue clearly...",
-                filled: true,
-                fillColor: Colors.white,
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(12),
-                  borderSide: BorderSide(color: Colors.grey.shade300),
-                ),
-                enabledBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(12),
-                  borderSide: BorderSide(color: Colors.grey.shade300),
-                ),
-                focusedBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(12),
-                  borderSide: BorderSide(color: ecoGreen, width: 2),
-                ),
-                contentPadding: const EdgeInsets.all(15),
+              // Section label
+              const EcoSectionLabel(label: 'Issue Details'),
+              const SizedBox(height: 14),
+
+              // Type dropdown
+              EcoDropdown(
+                value: _issueType,
+                items: ['Littering', 'Water Pollution', 'Tree Damage', 'Illegal Dumping', 'Other'],
+                icon: _iconForIssue,
+                onChanged: (v) => setState(() => _issueType = v!),
               ),
-            ),
+              const SizedBox(height: 14),
 
-            const SizedBox(height: 40),
+              // Description
+              EcoTextField(controller: _desc, hint: 'Describe the issue clearly…'),
+              const SizedBox(height: 32),
 
-            // 3. ACTION BUTTONS
-            SizedBox(
-              width: double.infinity,
-              height: 55,
-              child: ElevatedButton(
-                onPressed: isLoading ? null : submit,
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: ecoGreen,
-                  foregroundColor: Colors.white,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(15),
-                  ),
-                  elevation: 5,
-                  shadowColor: ecoGreen.withOpacity(0.4),
-                ),
-                child: isLoading
-                    ? const CircularProgressIndicator(color: Colors.white)
-                    : const Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Icon(Icons.send_rounded),
-                          SizedBox(width: 10),
-                          Text("Submit Report", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-                        ],
-                      ),
-              ),
-            ),
-          ],
-        ),
+              // Submit
+              EcoGradientButton(loading: _isLoading, label: 'Submit Report', icon: Icons.send_rounded, onPressed: _submit),
+            ])),
+          ),
+        ],
       ),
     );
   }
 
-  // Helper for icons based on selection
-  IconData _getIconForType(String type) {
-    switch (type) {
-      case "Littering": return Icons.delete_outline;
-      case "Water Pollution": return Icons.water_drop_outlined;
-      case "Tree Damage": return Icons.forest_outlined;
-      case "Illegal Dumping": return Icons.warning_amber_rounded;
+  IconData _iconForIssue(String t) {
+    switch (t) {
+      case 'Littering': return Icons.delete_outline;
+      case 'Water Pollution': return Icons.water_drop_outlined;
+      case 'Tree Damage': return Icons.forest_outlined;
+      case 'Illegal Dumping': return Icons.warning_amber_rounded;
       default: return Icons.help_outline;
     }
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Shared Eco Widgets (used by both Report Issue and Add Nature)
+// ─────────────────────────────────────────────────────────────────────────────
+
+class EcoPhotoCard extends StatelessWidget {
+  final File? image;
+  final VoidCallback onTap;
+  final IconData emptyIcon;
+  final String emptyLabel;
+  const EcoPhotoCard({super.key, required this.image, required this.onTap, required this.emptyIcon, required this.emptyLabel});
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 300),
+        height: 220,
+        width: double.infinity,
+        decoration: BoxDecoration(
+          color: image == null ? kLightGreen.withValues(alpha: 0.35) : Colors.transparent,
+          borderRadius: BorderRadius.circular(24),
+          border: Border.all(color: image == null ? kG1.withValues(alpha: 0.4) : kG1, width: 2),
+          boxShadow: kCardShadow,
+        ),
+        child: image == null
+            ? Column(mainAxisAlignment: MainAxisAlignment.center, children: [
+                Container(
+                  width: 64, height: 64,
+                  decoration: BoxDecoration(gradient: kGradient, shape: BoxShape.circle),
+                  child: Icon(emptyIcon, color: Colors.white, size: 28),
+                ),
+                const SizedBox(height: 14),
+                Text(emptyLabel, style: const TextStyle(color: kTextMuted, fontWeight: FontWeight.w600, fontSize: 14)),
+                const SizedBox(height: 4),
+                const Text('Camera only', style: TextStyle(color: kTextMuted, fontSize: 11)),
+              ])
+            : ClipRRect(
+                borderRadius: BorderRadius.circular(22),
+                child: Stack(fit: StackFit.expand, children: [
+                  Image.file(image!, fit: BoxFit.cover),
+                  Container(
+                    decoration: BoxDecoration(gradient: LinearGradient(
+                      colors: [Colors.black.withValues(alpha: 0.0), Colors.black.withValues(alpha: 0.3)],
+                      begin: Alignment.topCenter, end: Alignment.bottomCenter,
+                    )),
+                    alignment: Alignment.center,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                      decoration: BoxDecoration(
+                        color: Colors.white.withValues(alpha: 0.2),
+                        borderRadius: BorderRadius.circular(30),
+                        border: Border.all(color: Colors.white54),
+                      ),
+                      child: const Row(mainAxisSize: MainAxisSize.min, children: [
+                        Icon(Icons.edit_rounded, color: Colors.white, size: 16),
+                        SizedBox(width: 6),
+                        Text('Retake', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13)),
+                      ]),
+                    ),
+                  ),
+                ]),
+              ),
+      ),
+    );
+  }
+}
+
+class EcoSectionLabel extends StatelessWidget {
+  final String label;
+  const EcoSectionLabel({super.key, required this.label});
+  @override
+  Widget build(BuildContext context) => Text(label,
+    style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: kTextDark, letterSpacing: 0.2));
+}
+
+class EcoDropdown extends StatelessWidget {
+  final String value;
+  final List<String> items;
+  final IconData Function(String) icon;
+  final void Function(String?) onChanged;
+  const EcoDropdown({super.key, required this.value, required this.items, required this.icon, required this.onChanged});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+      decoration: BoxDecoration(
+        color: kOffWhite,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: kLightGreen),
+        boxShadow: kCardShadow,
+      ),
+      child: DropdownButtonHideUnderline(
+        child: DropdownButton<String>(
+          value: value, isExpanded: true,
+          icon: const Icon(Icons.keyboard_arrow_down_rounded, color: kG1),
+          style: const TextStyle(color: kTextDark, fontWeight: FontWeight.w500, fontSize: 14),
+          items: items.map((v) => DropdownMenuItem(
+            value: v,
+            child: Row(children: [
+              Icon(icon(v), color: kTextMuted, size: 18),
+              const SizedBox(width: 10),
+              Text(v),
+            ]),
+          )).toList(),
+          onChanged: onChanged,
+        ),
+      ),
+    );
+  }
+}
+
+class EcoTextField extends StatelessWidget {
+  final TextEditingController controller;
+  final String hint;
+  const EcoTextField({super.key, required this.controller, required this.hint});
+
+  @override
+  Widget build(BuildContext context) {
+    return TextField(
+      controller: controller, maxLines: 4,
+      style: const TextStyle(color: kTextDark, fontSize: 14),
+      decoration: InputDecoration(
+        hintText: hint, hintStyle: const TextStyle(color: kTextMuted, fontSize: 14),
+        filled: true, fillColor: kOffWhite,
+        contentPadding: const EdgeInsets.all(18),
+        border: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: const BorderSide(color: kLightGreen)),
+        enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: const BorderSide(color: kLightGreen)),
+        focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: const BorderSide(color: kG1, width: 2)),
+      ),
+    );
+  }
+}
+
+class EcoGradientButton extends StatelessWidget {
+  final bool loading;
+  final String label;
+  final IconData icon;
+  final VoidCallback onPressed;
+  const EcoGradientButton({super.key, required this.loading, required this.label, required this.icon, required this.onPressed});
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: loading ? null : onPressed,
+      borderRadius: BorderRadius.circular(20),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 200),
+        height: 58,
+        decoration: BoxDecoration(
+          gradient: loading ? const LinearGradient(colors: [Color(0xFFB0D8C4), Color(0xFFC8E8D6)]) : kGradient,
+          borderRadius: BorderRadius.circular(20),
+          boxShadow: loading ? [] : [BoxShadow(color: kG1.withValues(alpha: 0.4), blurRadius: 14, offset: const Offset(0, 6))],
+        ),
+        child: Center(
+          child: loading
+              ? const SizedBox(width: 24, height: 24, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2.5))
+              : Row(mainAxisSize: MainAxisSize.min, children: [
+                  Icon(icon, color: Colors.white, size: 20),
+                  const SizedBox(width: 10),
+                  Text(label, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16, letterSpacing: 0.3)),
+                ]),
+        ),
+      ),
+    );
   }
 }
