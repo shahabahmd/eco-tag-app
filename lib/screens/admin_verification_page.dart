@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import '../services/municipality_service.dart';
+import 'municipality_selection_page.dart';
 
 class AdminVerificationPage extends StatefulWidget {
   const AdminVerificationPage({super.key});
@@ -14,7 +16,7 @@ class _AdminVerificationPageState extends State<AdminVerificationPage> {
 
   Future<void> _checkVerificationStatus() async {
     setState(() => _isLoading = true);
-    
+
     // Reload user to get latest verification status
     await _auth.currentUser?.reload();
     final user = _auth.currentUser;
@@ -22,16 +24,35 @@ class _AdminVerificationPageState extends State<AdminVerificationPage> {
     setState(() => _isLoading = false);
 
     if (user != null && user.emailVerified) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text("✅ Email Verified! Welcome Admin."), backgroundColor: Colors.green),
-        );
+      if (!mounted) return;
+
+      // Check if municipality is already locked
+      final status = await MunicipalityService.getMunicipalityStatus(user.uid);
+      final locked = status['municipalityLocked'] == true;
+
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text("✅ Email Verified! Welcome Admin."),
+          backgroundColor: Colors.green,
+        ),
+      );
+
+      if (locked) {
         Navigator.pushReplacementNamed(context, '/admin_dashboard');
+      } else {
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(builder: (_) => const MunicipalitySelectionPage()),
+        );
       }
     } else {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text("Email not verified yet. Please check your inbox."), backgroundColor: Colors.orange),
+          const SnackBar(
+            content: Text("Email not verified yet. Please check your inbox."),
+            backgroundColor: Colors.orange,
+          ),
         );
       }
     }
@@ -92,8 +113,8 @@ class _AdminVerificationPageState extends State<AdminVerificationPage> {
                 style: TextStyle(fontSize: 16, color: Colors.grey),
               ),
               const SizedBox(height: 32),
-              
-              if (_isLoading) 
+
+              if (_isLoading)
                 const CircularProgressIndicator(color: Color(0xFF11998e))
               else
                 SizedBox(
@@ -106,12 +127,13 @@ class _AdminVerificationPageState extends State<AdminVerificationPage> {
                     ),
                     onPressed: _checkVerificationStatus,
                     icon: const Icon(Icons.refresh),
-                    label: const Text("Refresh Verification Status", style: TextStyle(fontSize: 16)),
+                    label: const Text("Refresh Verification Status",
+                        style: TextStyle(fontSize: 16)),
                   ),
                 ),
-              
+
               const SizedBox(height: 16),
-              
+
               SizedBox(
                 width: double.infinity,
                 child: OutlinedButton.icon(
@@ -122,7 +144,8 @@ class _AdminVerificationPageState extends State<AdminVerificationPage> {
                   ),
                   onPressed: _resendVerificationEmail,
                   icon: const Icon(Icons.send),
-                  label: const Text("Resend Verification Email", style: TextStyle(fontSize: 16)),
+                  label: const Text("Resend Verification Email",
+                      style: TextStyle(fontSize: 16)),
                 ),
               ),
 
@@ -131,7 +154,8 @@ class _AdminVerificationPageState extends State<AdminVerificationPage> {
               TextButton.icon(
                 onPressed: _logout,
                 icon: const Icon(Icons.logout, color: Colors.red),
-                label: const Text("Logout", style: TextStyle(color: Colors.red, fontSize: 16)),
+                label: const Text("Logout",
+                    style: TextStyle(color: Colors.red, fontSize: 16)),
               ),
             ],
           ),

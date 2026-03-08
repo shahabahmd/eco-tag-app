@@ -1,8 +1,11 @@
 import 'package:flutter/material.dart';
 import 'dart:math' as math;
 import 'package:firebase_auth/firebase_auth.dart';
+import '../services/municipality_service.dart';
 import 'login_page.dart';
 import 'home_page.dart';
+import 'admin_dashboard_page.dart';
+import 'municipality_selection_page.dart';
 
 // ─── design tokens ────────────────────────────────────────────────────────────
 const _kG1 = Color(0xFF4DBB87);
@@ -19,9 +22,7 @@ class SplashScreen extends StatefulWidget {
 
 class _SplashScreenState extends State<SplashScreen>
     with TickerProviderStateMixin {
-  // Check auth FIRST — synchronous, no frame budget used
-  final bool _isLoggedIn =
-      FirebaseAuth.instance.currentUser != null;
+  final User? _currentUser = FirebaseAuth.instance.currentUser;
 
   // Phase 1: entrance — logo fades + scales in
   late final AnimationController _enterCtrl = AnimationController(
@@ -63,13 +64,33 @@ class _SplashScreenState extends State<SplashScreen>
     _dotsCtrl.stop();
     await _exitCtrl.forward();
     if (!mounted) return;
+    // Resolve destination before using context
+    final destination = await _resolveDestination();
+    if (!mounted) return;
     // Navigate with smooth slide-up
     Navigator.pushReplacement(
       context,
-      _SlideUpRoute(
-        child: _isLoggedIn ? const HomePage() : const LoginPage(),
-      ),
+      _SlideUpRoute(child: destination),
     );
+  }
+
+  /// Determines which screen to show based on auth+municipality state.
+  Future<Widget> _resolveDestination() async {
+    final user = _currentUser;
+    if (user == null) return const LoginPage();
+
+    // Admin users: check municipality lock
+    if (user.email?.endsWith('@ug.cusat.ac.in') == true && user.emailVerified) {
+      final status = await MunicipalityService.getMunicipalityStatus(user.uid);
+      if (status['municipalityLocked'] == true) {
+        return const AdminDashboardPage();
+      } else {
+        return const MunicipalitySelectionPage();
+      }
+    }
+
+    // Regular users
+    return const HomePage();
   }
 
   @override

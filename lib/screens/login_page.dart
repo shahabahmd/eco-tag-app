@@ -2,8 +2,10 @@ import 'package:flutter/material.dart';
 import 'signup_page.dart';
 import 'home_page.dart';
 import 'forgot_password_page.dart';
+import 'municipality_selection_page.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:google_sign_in/google_sign_in.dart';
+import '../services/municipality_service.dart';
 
 // ─── Design Tokens ───────────────────────────────────────────────────────────
 const _kG1         = Color(0xFF4DBB87);
@@ -48,8 +50,11 @@ class _LoginPageState extends State<LoginPage> {
       setState(() => _loading = false);
       if (!mounted) return;
       if (cred.user?.email?.endsWith('@ug.cusat.ac.in') == true) {
-        Navigator.pushReplacementNamed(context,
-            cred.user!.emailVerified ? '/admin_dashboard' : '/admin_verification');
+        if (!cred.user!.emailVerified) {
+          Navigator.pushReplacementNamed(context, '/admin_verification');
+        } else {
+          await _routeAdmin(cred.user!.uid);
+        }
       } else {
         Navigator.pushReplacement(context,
             MaterialPageRoute(builder: (_) => const HomePage()));
@@ -57,6 +62,22 @@ class _LoginPageState extends State<LoginPage> {
     } catch (_) {
       setState(() => _loading = false);
       if (mounted) _snack('Login failed. Check your credentials.');
+    }
+  }
+
+  /// Routes a verified admin to municipality selection or dashboard.
+  Future<void> _routeAdmin(String uid) async {
+    if (!mounted) return;
+    final status = await MunicipalityService.getMunicipalityStatus(uid);
+    final locked = status['municipalityLocked'] == true;
+    if (!mounted) return;
+    if (locked) {
+      Navigator.pushReplacementNamed(context, '/admin_dashboard');
+    } else {
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(builder: (_) => const MunicipalitySelectionPage()),
+      );
     }
   }
 
@@ -68,8 +89,11 @@ class _LoginPageState extends State<LoginPage> {
         GoogleAuthProvider.credential(idToken: gAuth.idToken));
     if (!mounted) return;
     if (cred.user?.email?.endsWith('@ug.cusat.ac.in') == true) {
-      Navigator.pushReplacementNamed(context,
-          cred.user!.emailVerified ? '/admin_dashboard' : '/admin_verification');
+      if (!cred.user!.emailVerified) {
+        Navigator.pushReplacementNamed(context, '/admin_verification');
+      } else {
+        await _routeAdmin(cred.user!.uid);
+      }
     } else {
       Navigator.pushReplacement(context,
           MaterialPageRoute(builder: (_) => const HomePage()));

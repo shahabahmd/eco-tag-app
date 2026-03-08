@@ -4,6 +4,11 @@ import 'package:intl/intl.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:geolocator/geolocator.dart';
+import 'package:url_launcher/url_launcher.dart';
+import '../services/municipality_service.dart';
+import '../services/municipality_coords.dart';
+import 'full_screen_map_page.dart';
+import 'contact_admin_page.dart';
 
 // ─── Design Tokens (matches user analytics style) ────────────────────────────
 const kG1         = Color(0xFF4DBB87);
@@ -55,70 +60,22 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> {
   @override
   void initState() {
     super.initState();
-    _checkMunicipality();
+    _loadMunicipality();
   }
 
-  Future<void> _checkMunicipality() async {
+  /// Reads the locked municipality from Firestore and sets the default map center.
+  Future<void> _loadMunicipality() async {
     final uid = FirebaseAuth.instance.currentUser?.uid;
     if (uid == null) return;
-    final doc = await FirebaseFirestore.instance.collection('users').doc(uid).get();
-    if (doc.exists && doc.data()!.containsKey('municipality')) {
-      setState(() => _selectedMunicipality = doc.data()!['municipality']);
-    } else {
-      _showMunicipalityDialog();
+    final status = await MunicipalityService.getMunicipalityStatus(uid);
+    if (mounted) {
+      final mun = status['municipality'] as String?;
+      setState(() {
+        _selectedMunicipality = mun;
+        // Pre-center the map on the municipality immediately
+        _mapCenter = MunicipalityCoords.coordsFor(mun);
+      });
     }
-  }
-
-  void _showMunicipalityDialog() {
-    String temp = _selectedMunicipality ?? 'Adoor';
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (ctx) => StatefulBuilder(builder: (ctx, setD) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        title: Row(children: [
-          Container(width: 36, height: 36,
-            decoration: BoxDecoration(gradient: kGradient, shape: BoxShape.circle),
-            child: const Icon(Icons.location_city_rounded, color: Colors.white, size: 18)),
-          const SizedBox(width: 10),
-          const Text('Choose Municipality', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-        ]),
-        content: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
-          decoration: BoxDecoration(
-            color: kMint, borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: kLightGreen),
-          ),
-          child: DropdownButtonHideUnderline(
-            child: DropdownButton<String>(
-              value: temp, isExpanded: true,
-              items: _municipalities.map((v) => DropdownMenuItem(value: v, child: Text(v))).toList(),
-              onChanged: (v) { if (v != null) setD(() => temp = v); },
-            ),
-          ),
-        ),
-        actions: [
-          ElevatedButton(
-            onPressed: () async {
-              final uid = FirebaseAuth.instance.currentUser?.uid;
-              if (uid != null) {
-                await FirebaseFirestore.instance.collection('users').doc(uid).set({
-                  'email': FirebaseAuth.instance.currentUser?.email,
-                  'role': 'admin', 'municipality': temp,
-                }, SetOptions(merge: true));
-                setState(() => _selectedMunicipality = temp);
-                if (mounted) Navigator.pop(ctx);
-              }
-            },
-            style: ElevatedButton.styleFrom(
-              backgroundColor: kG1, foregroundColor: Colors.white,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-            ),
-            child: const Text('Confirm', style: TextStyle(fontWeight: FontWeight.bold)),
-          ),
-        ],
-      )),
-    );
   }
 
   Future<void> _updateStatus(String docId, String newStatus) async {
@@ -194,10 +151,12 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> {
 
   void _processMapData(List<Map<String, dynamic>> reports) {
     if (reports.isEmpty) return;
+    // Only move to first-report center if coord-based center wasn't already set
     if (_mapCenter == null) {
       _mapCenter = LatLng(reports.first['lat'], reports.first['lng']);
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        _mapController?.animateCamera(CameraUpdate.newLatLngZoom(_mapCenter!, 12));
+        _mapController?.animateCamera(
+            CameraUpdate.newLatLngZoom(_mapCenter!, 12));
       });
     }
     _markers.clear();
@@ -242,6 +201,90 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> {
     }
   }
 
+  /// Shows the Help / Support bottom sheet.
+  void _showHelpSheet() {
+    showModalBottomSheet(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+      ),
+      backgroundColor: kOffWhite,
+      builder: (_) => Padding(
+        padding: const EdgeInsets.fromLTRB(24, 20, 24, 32),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // Handle
+            Container(
+              width: 40, height: 4,
+              decoration: BoxDecoration(
+                color: kLightGreen, borderRadius: BorderRadius.circular(4)),
+            ),
+            const SizedBox(height: 20),
+            Container(
+              width: 56, height: 56,
+              decoration: BoxDecoration(
+                gradient: kGradient, shape: BoxShape.circle,
+              ),
+              child: const Icon(Icons.support_agent_rounded,
+                  color: Colors.white, size: 28),
+            ),
+            const SizedBox(height: 14),
+            const Text('Help & Support',
+              style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold,
+                  color: kTextDark)),
+            const SizedBox(height: 10),
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: kMint, borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: kLightGreen),
+              ),
+              child: Row(
+                children: [
+                  const Icon(Icons.lock_rounded, color: kG1, size: 20),
+                  const SizedBox(width: 12),
+                  const Expanded(
+                    child: Text(
+                      'Municipality selection is permanent. To request a change, '
+                      'please contact the Super Admin.',
+                      style: TextStyle(fontSize: 13, color: kTextDark,
+                          fontWeight: FontWeight.w500, height: 1.5),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 20),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton.icon(
+                onPressed: () {
+                  Navigator.pop(context); // close bottom sheet
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => const ContactAdminPage(),
+                    ),
+                  );
+                },
+                icon: const Icon(Icons.email_rounded, size: 18),
+                label: const Text('Contact Super Admin',
+                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: kG1, foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                  shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(16)),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     if (_selectedMunicipality == null) {
@@ -258,22 +301,48 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> {
         child: Container(
           color: kOffWhite,
           padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
-          child: SizedBox(
-            width: double.infinity,
-            child: TextButton.icon(
-              onPressed: () async {
-                await FirebaseAuth.instance.signOut();
-                if (mounted) Navigator.pushReplacementNamed(context, '/');
-              },
-              icon: const Icon(Icons.logout_rounded, color: Colors.redAccent),
-              label: const Text('Logout Admin',
-                style: TextStyle(color: Colors.redAccent, fontWeight: FontWeight.bold, fontSize: 15)),
-              style: TextButton.styleFrom(
-                padding: const EdgeInsets.symmetric(vertical: 14),
-                backgroundColor: Colors.red.shade50,
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          child: Row(
+            children: [
+              // Help / Support button
+              Expanded(
+                child: TextButton.icon(
+                  onPressed: _showHelpSheet,
+                  icon: const Icon(Icons.help_outline_rounded,
+                      color: kTextMuted),
+                  label: const Text('Help',
+                    style: TextStyle(color: kTextMuted,
+                        fontWeight: FontWeight.bold, fontSize: 14)),
+                  style: TextButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                    backgroundColor: kMint,
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(16)),
+                  ),
+                ),
               ),
-            ),
+              const SizedBox(width: 12),
+              // Logout button
+              Expanded(
+                flex: 2,
+                child: TextButton.icon(
+                  onPressed: () async {
+                    await FirebaseAuth.instance.signOut();
+                    if (mounted) Navigator.pushReplacementNamed(context, '/');
+                  },
+                  icon: const Icon(Icons.logout_rounded,
+                      color: Colors.redAccent),
+                  label: const Text('Logout Admin',
+                    style: TextStyle(color: Colors.redAccent,
+                        fontWeight: FontWeight.bold, fontSize: 14)),
+                  style: TextButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                    backgroundColor: Colors.red.shade50,
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(16)),
+                  ),
+                ),
+              ),
+            ],
           ),
         ),
       ),
@@ -314,7 +383,7 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> {
               SliverToBoxAdapter(
                 child: _AdminHeader(
                   municipality: _selectedMunicipality!,
-                  onChangeMunicipality: _showMunicipalityDialog,
+                  onHelp: _showHelpSheet,
                 ),
               ),
 
@@ -326,17 +395,61 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> {
                 ),
               ),
 
-              // Map
+              // Map — tap to open full-screen
               SliverToBoxAdapter(
                 child: Padding(
                   padding: const EdgeInsets.fromLTRB(20, 16, 20, 16),
-                  child: _MapCard(
-                    mapCenter: _mapCenter ?? const LatLng(10.8505, 76.2711),
-                    isHeatmap: _isHeatmapMode,
-                    markers: _markers,
-                    circles: _heatmapCircles,
-                    onToggleHeatmap: () => setState(() => _isHeatmapMode = !_isHeatmapMode),
-                    onMapCreated: (c) => _mapController = c,
+                  child: GestureDetector(
+                    onTap: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => FullScreenMapPage(
+                            municipality: _selectedMunicipality!,
+                            mapCenter: _mapCenter ?? MunicipalityCoords.coordsFor(_selectedMunicipality),
+                            markers: _markers,
+                            heatmapCircles: _heatmapCircles,
+                            isHeatmapMode: _isHeatmapMode,
+                          ),
+                        ),
+                      );
+                    },
+                    child: Stack(
+                      children: [
+                        _MapCard(
+                          mapCenter: _mapCenter ?? MunicipalityCoords.coordsFor(_selectedMunicipality),
+                          isHeatmap: _isHeatmapMode,
+                          markers: _markers,
+                          circles: _heatmapCircles,
+                          onToggleHeatmap: () => setState(() => _isHeatmapMode = !_isHeatmapMode),
+                          onMapCreated: (c) => _mapController = c,
+                        ),
+                        // Tap hint overlay
+                        Positioned(
+                          top: 10, left: 10,
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 10, vertical: 6),
+                            decoration: BoxDecoration(
+                              color: Colors.black.withValues(alpha: 0.45),
+                              borderRadius: BorderRadius.circular(20),
+                            ),
+                            child: const Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(Icons.open_in_full_rounded,
+                                    color: Colors.white, size: 12),
+                                SizedBox(width: 4),
+                                Text('Tap for full map',
+                                  style: TextStyle(color: Colors.white,
+                                      fontSize: 10,
+                                      fontWeight: FontWeight.bold)),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
                 ),
               ),
@@ -399,8 +512,8 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> {
 // ─── Admin Gradient Header ────────────────────────────────────────────────────
 class _AdminHeader extends StatelessWidget {
   final String municipality;
-  final VoidCallback onChangeMunicipality;
-  const _AdminHeader({required this.municipality, required this.onChangeMunicipality});
+  final VoidCallback onHelp;
+  const _AdminHeader({required this.municipality, required this.onHelp});
 
   @override
   Widget build(BuildContext context) {
@@ -422,36 +535,38 @@ class _AdminHeader extends StatelessWidget {
                   style: TextStyle(color: Colors.white, fontSize: 22,
                       fontWeight: FontWeight.bold, letterSpacing: 0.3)),
                 const SizedBox(height: 8),
-                GestureDetector(
-                  onTap: onChangeMunicipality,
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                    decoration: BoxDecoration(
-                      color: Colors.white.withValues(alpha: 0.2),
-                      borderRadius: BorderRadius.circular(20),
-                      border: Border.all(color: Colors.white38),
-                    ),
-                    child: Row(mainAxisSize: MainAxisSize.min, children: [
-                      const Icon(Icons.location_city_rounded, color: Colors.white, size: 16),
-                      const SizedBox(width: 6),
-                      Text(municipality,
-                        style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600, fontSize: 13)),
-                      const SizedBox(width: 6),
-                      const Icon(Icons.expand_more_rounded, color: Colors.white70, size: 16),
-                    ]),
+                // ── Read-only municipality display (locked) ──────────────
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withValues(alpha: 0.2),
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(color: Colors.white38),
                   ),
+                  child: Row(mainAxisSize: MainAxisSize.min, children: [
+                    const Icon(Icons.lock_rounded, color: Colors.white70, size: 13),
+                    const SizedBox(width: 6),
+                    Text(municipality,
+                      style: const TextStyle(color: Colors.white,
+                          fontWeight: FontWeight.w600, fontSize: 13)),
+                  ]),
                 ),
               ],
             ),
           ),
-          Container(
-            width: 48, height: 48,
-            decoration: BoxDecoration(
-              color: Colors.white.withValues(alpha: 0.22),
-              shape: BoxShape.circle,
-              border: Border.all(color: Colors.white54, width: 2),
+          // ── Help icon ─────────────────────────────────────────────────
+          GestureDetector(
+            onTap: onHelp,
+            child: Container(
+              width: 48, height: 48,
+              decoration: BoxDecoration(
+                color: Colors.white.withValues(alpha: 0.22),
+                shape: BoxShape.circle,
+                border: Border.all(color: Colors.white54, width: 2),
+              ),
+              child: const Icon(Icons.help_outline_rounded,
+                  color: Colors.white, size: 24),
             ),
-            child: const Icon(Icons.admin_panel_settings_rounded, color: Colors.white, size: 24),
           ),
         ],
       ),

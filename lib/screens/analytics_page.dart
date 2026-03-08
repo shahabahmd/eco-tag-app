@@ -90,6 +90,205 @@ class _AnalyticsPageState extends State<AnalyticsPage>
     if (mounted) Navigator.pushNamedAndRemoveUntil(context, '/', (r) => false);
   }
 
+  /// Opens a bottom sheet help/support form.
+  void _showHelpForm() {
+    final msgCtrl = TextEditingController();
+    bool submitting = false;
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(28))),
+      backgroundColor: kOffWhite,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setSheet) => Padding(
+          padding: EdgeInsets.only(
+            left: 24, right: 24, top: 20,
+            bottom: MediaQuery.of(ctx).viewInsets.bottom + 28,
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Handle
+              Center(
+                child: Container(
+                  width: 40, height: 4,
+                  decoration: BoxDecoration(
+                    color: kLightGreen,
+                    borderRadius: BorderRadius.circular(4)),
+                ),
+              ),
+              const SizedBox(height: 18),
+              // Icon + title
+              Row(children: [
+                Container(
+                  width: 44, height: 44,
+                  decoration: BoxDecoration(
+                    gradient: kGradient, shape: BoxShape.circle),
+                  child: const Icon(Icons.support_agent_rounded,
+                      color: Colors.white, size: 22),
+                ),
+                const SizedBox(width: 12),
+                const Text('Contact Support',
+                  style: TextStyle(fontSize: 18,
+                      fontWeight: FontWeight.bold, color: kTextDark)),
+              ]),
+              const SizedBox(height: 18),
+              // Message field
+              Container(
+                decoration: BoxDecoration(
+                  color: kMint,
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(color: kLightGreen),
+                ),
+                child: TextField(
+                  controller: msgCtrl,
+                  maxLines: 4,
+                  style: const TextStyle(color: kTextDark, fontSize: 14),
+                  decoration: const InputDecoration(
+                    hintText: 'Describe your issue or request...',
+                    hintStyle: TextStyle(color: kTextMuted, fontSize: 13),
+                    border: InputBorder.none,
+                    contentPadding: EdgeInsets.all(16),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
+              // Submit
+              SizedBox(
+                width: double.infinity,
+                child: InkWell(
+                  onTap: submitting
+                      ? null
+                      : () async {
+                          final msg = msgCtrl.text.trim();
+                          if (msg.isEmpty) return;
+                          setSheet(() => submitting = true);
+                          final user = FirebaseAuth.instance.currentUser;
+                          // Capture context-dependent objects before await
+                          final nav = Navigator.of(ctx);
+                          final rootNav = Navigator.of(context);
+                          try {
+                            await FirebaseFirestore.instance
+                                .collection('support_requests')
+                                .add({
+                              'adminEmail':  user?.email ?? '',
+                              'adminUid':    user?.uid ?? '',
+                              'municipality': 'N/A (User)',
+                              'reason':      'User Support Request',
+                              'description': msg,
+                              'status':      'pending',
+                              'createdAt':   FieldValue.serverTimestamp(),
+                            });
+                            nav.pop();
+                            if (mounted) {
+                              // ignore: use_build_context_synchronously
+                              showDialog(
+                                context: context,
+                                builder: (_) => Dialog(
+                                  shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(24)),
+                                  child: Container(
+                                    padding: const EdgeInsets.all(28),
+                                    decoration: BoxDecoration(
+                                      color: kOffWhite,
+                                      borderRadius: BorderRadius.circular(24)),
+                                    child: Column(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        Container(
+                                          width: 60, height: 60,
+                                          decoration: BoxDecoration(
+                                            gradient: kGradient,
+                                            shape: BoxShape.circle),
+                                          child: const Icon(Icons.check_rounded,
+                                              color: Colors.white, size: 32),
+                                        ),
+                                        const SizedBox(height: 14),
+                                        const Text('Message Sent!',
+                                          style: TextStyle(fontSize: 19,
+                                              fontWeight: FontWeight.bold,
+                                              color: kTextDark)),
+                                        const SizedBox(height: 8),
+                                        const Text(
+                                          'Your message has been sent to support.',
+                                          textAlign: TextAlign.center,
+                                          style: TextStyle(color: kTextMuted,
+                                              fontSize: 13, height: 1.5)),
+                                        const SizedBox(height: 22),
+                                        SizedBox(
+                                          width: double.infinity,
+                                          child: ElevatedButton(
+                                            onPressed: () => rootNav.pop(),
+                                            style: ElevatedButton.styleFrom(
+                                              backgroundColor: kG1,
+                                              foregroundColor: Colors.white,
+                                              padding: const EdgeInsets.symmetric(
+                                                  vertical: 14),
+                                              shape: RoundedRectangleBorder(
+                                                  borderRadius:
+                                                      BorderRadius.circular(14)),
+                                            ),
+                                            child: const Text('Done',
+                                              style: TextStyle(
+                                                  fontWeight: FontWeight.bold,
+                                                  fontSize: 15)),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ),
+                              );
+                            }
+                          } catch (_) {
+                            setSheet(() => submitting = false);
+                          }
+                        },
+                  borderRadius: BorderRadius.circular(16),
+                  child: Container(
+                    height: 52,
+                    decoration: BoxDecoration(
+                      gradient: submitting ? null : kGradient,
+                      color: submitting ? kLightGreen : null,
+                      borderRadius: BorderRadius.circular(16),
+                      boxShadow: submitting
+                          ? []
+                          : [BoxShadow(
+                              color: kG1.withValues(alpha: 0.30),
+                              blurRadius: 10, offset: const Offset(0, 4))],
+                    ),
+                    child: Center(
+                      child: submitting
+                          ? const SizedBox(
+                              width: 20, height: 20,
+                              child: CircularProgressIndicator(
+                                  strokeWidth: 2.5, color: Colors.white))
+                          : const Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(Icons.send_rounded,
+                                    color: Colors.white, size: 17),
+                                SizedBox(width: 8),
+                                Text('Send Message',
+                                  style: TextStyle(color: Colors.white,
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 15)),
+                              ],
+                            ),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     if (_isLoading) {
@@ -106,7 +305,7 @@ class _AnalyticsPageState extends State<AnalyticsPage>
       body: Column(
         children: [
           // ── Gradient Header ──────────────────────────────────────────────
-          _Header(name: name),
+          _Header(name: name, onHelp: _showHelpForm),
 
           // ── Stat Cards (overlapping the header bottom) ───────────────────
           Transform.translate(
@@ -167,27 +366,51 @@ class _AnalyticsPageState extends State<AnalyticsPage>
             ),
           ),
 
-          // ── Logout Bar ───────────────────────────────────────────────────
+          // ── Bottom Bar: Help + Logout ──────────────────────────────────
           SafeArea(
             top: false,
             child: Container(
               color: kOffWhite,
               padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
-              child: SizedBox(
-                width: double.infinity,
-                child: TextButton.icon(
-                  onPressed: _logout,
-                  icon: const Icon(Icons.logout_rounded, color: Colors.redAccent),
-                  label: const Text('Logout',
-                    style: TextStyle(color: Colors.redAccent,
-                        fontWeight: FontWeight.bold, fontSize: 15)),
-                  style: TextButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(vertical: 14),
-                    backgroundColor: Colors.red.shade50,
-                    shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(16)),
+              child: Row(
+                children: [
+                  // Help button
+                  Expanded(
+                    child: TextButton.icon(
+                      onPressed: _showHelpForm,
+                      icon: const Icon(Icons.help_outline_rounded,
+                          color: kTextMuted),
+                      label: const Text('Help',
+                        style: TextStyle(color: kTextMuted,
+                            fontWeight: FontWeight.bold, fontSize: 14)),
+                      style: TextButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                        backgroundColor: kMint,
+                        shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(16)),
+                      ),
+                    ),
                   ),
-                ),
+                  const SizedBox(width: 12),
+                  // Logout button
+                  Expanded(
+                    flex: 2,
+                    child: TextButton.icon(
+                      onPressed: _logout,
+                      icon: const Icon(Icons.logout_rounded,
+                          color: Colors.redAccent),
+                      label: const Text('Logout',
+                        style: TextStyle(color: Colors.redAccent,
+                            fontWeight: FontWeight.bold, fontSize: 14)),
+                      style: TextButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                        backgroundColor: Colors.red.shade50,
+                        shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(16)),
+                      ),
+                    ),
+                  ),
+                ],
               ),
             ),
           ),
@@ -200,7 +423,8 @@ class _AnalyticsPageState extends State<AnalyticsPage>
 // ─── Header ──────────────────────────────────────────────────────────────────
 class _Header extends StatelessWidget {
   final String name;
-  const _Header({required this.name});
+  final VoidCallback onHelp;
+  const _Header({required this.name, required this.onHelp});
 
   @override
   Widget build(BuildContext context) {
@@ -220,7 +444,8 @@ class _Header extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 const Text('Welcome back,',
-                  style: TextStyle(color: Colors.white70, fontSize: 15, letterSpacing: 0.5)),
+                  style: TextStyle(color: Colors.white70,
+                      fontSize: 15, letterSpacing: 0.5)),
                 const SizedBox(height: 4),
                 Text(name,
                   style: const TextStyle(color: Colors.white, fontSize: 26,
@@ -231,14 +456,19 @@ class _Header extends StatelessWidget {
               ],
             ),
           ),
-          Container(
-            width: 50, height: 50,
-            decoration: BoxDecoration(
-              color: Colors.white.withValues(alpha: 0.22),
-              shape: BoxShape.circle,
-              border: Border.all(color: Colors.white54, width: 2),
+          // Help icon button
+          GestureDetector(
+            onTap: onHelp,
+            child: Container(
+              width: 50, height: 50,
+              decoration: BoxDecoration(
+                color: Colors.white.withValues(alpha: 0.22),
+                shape: BoxShape.circle,
+                border: Border.all(color: Colors.white54, width: 2),
+              ),
+              child: const Icon(Icons.help_outline_rounded,
+                  color: Colors.white, size: 24),
             ),
-            child: const Icon(Icons.eco_rounded, color: Colors.white, size: 26),
           ),
         ],
       ),

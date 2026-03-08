@@ -3,6 +3,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:geocoding/geocoding.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 // ─── Design Tokens ───────────────────────────────────────────────────────────
 const _kG1         = Color(0xFF4DBB87);
@@ -74,71 +75,175 @@ class _NearbySpotsPageState extends State<NearbySpotsPage> {
   }
 
   void _showDetails(Map<String, dynamic> data) {
+    // Use spotName if available, otherwise first sentence of description
+    final name = (data['spotName'] as String?)?.isNotEmpty == true
+        ? data['spotName'] as String
+        : (data['description']?.toString().split('.').first ?? 'Nature Spot');
+    final description = data['description'] ?? 'No description available.';
+    final municipality = data['municipality'] as String? ?? '';
+    final lat = (data['lat'] as num?)?.toDouble();
+    final lng = (data['lng'] as num?)?.toDouble();
+
     showDialog(
       context: context,
       builder: (_) => Dialog(
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+        insetPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 32),
         child: Container(
-          padding: const EdgeInsets.all(20),
-          decoration: BoxDecoration(color: _kOffWhite, borderRadius: BorderRadius.circular(24)),
-          child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
-            // Header
-            Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                decoration: BoxDecoration(gradient: _kGradient, borderRadius: BorderRadius.circular(20)),
-                child: const Row(mainAxisSize: MainAxisSize.min, children: [
-                  Icon(Icons.eco_rounded, color: Colors.white, size: 14),
-                  SizedBox(width: 5),
-                  Text('NATURE SPOT', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 11)),
-                ]),
+          decoration: BoxDecoration(
+              color: _kOffWhite, borderRadius: BorderRadius.circular(24)),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // ── Image with overlaid badge + close ────────────────────
+              Stack(
+                children: [
+                  ClipRRect(
+                    borderRadius: const BorderRadius.vertical(
+                        top: Radius.circular(24)),
+                    child: Image.network(
+                      data['imageUrl'],
+                      height: 200,
+                      width: double.infinity,
+                      fit: BoxFit.cover,
+                      errorBuilder: (_, __, ___) => Container(
+                        height: 200,
+                        color: _kLightGreen,
+                        child: const Center(
+                          child: Icon(Icons.image_not_supported_rounded,
+                              color: _kG1, size: 40),
+                        ),
+                      ),
+                    ),
+                  ),
+                  // Eco badge
+                  Positioned(
+                    top: 12, left: 14,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 10, vertical: 6),
+                      decoration: BoxDecoration(
+                          gradient: _kGradient,
+                          borderRadius: BorderRadius.circular(20)),
+                      child: const Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(Icons.eco_rounded,
+                              color: Colors.white, size: 13),
+                          SizedBox(width: 4),
+                          Text('NATURE SPOT',
+                            style: TextStyle(color: Colors.white,
+                                fontWeight: FontWeight.bold, fontSize: 10)),
+                        ],
+                      ),
+                    ),
+                  ),
+                  // Close button
+                  Positioned(
+                    top: 12, right: 14,
+                    child: GestureDetector(
+                      onTap: () => Navigator.pop(context),
+                      child: Container(
+                        width: 32, height: 32,
+                        decoration: BoxDecoration(
+                          color: Colors.white.withValues(alpha: 0.9),
+                          shape: BoxShape.circle,
+                        ),
+                        child: const Icon(Icons.close_rounded,
+                            size: 17, color: _kTextDark),
+                      ),
+                    ),
+                  ),
+                ],
               ),
-              GestureDetector(
-                onTap: () => Navigator.pop(context),
-                child: Container(width: 32, height: 32,
-                  decoration: BoxDecoration(color: _kLightGreen, shape: BoxShape.circle),
-                  child: const Icon(Icons.close, size: 16, color: _kTextDark)),
-              ),
-            ]),
-            const SizedBox(height: 14),
-            // Image
-            ClipRRect(
-              borderRadius: BorderRadius.circular(18),
-              child: Image.network(data['imageUrl'], height: 200, width: double.infinity, fit: BoxFit.cover),
-            ),
-            const SizedBox(height: 14),
-            const Text('Description',
-              style: TextStyle(color: _kTextMuted, fontSize: 11, fontWeight: FontWeight.bold, letterSpacing: 0.5)),
-            const SizedBox(height: 4),
-            Text(data['description'] ?? 'No description.',
-              style: const TextStyle(color: _kTextDark, fontSize: 15, fontWeight: FontWeight.w500)),
-            const SizedBox(height: 14),
-            Container(
-              padding: const EdgeInsets.all(10),
-              decoration: BoxDecoration(color: _kMint, borderRadius: BorderRadius.circular(10)),
-              child: Row(children: [
-                const Icon(Icons.location_on_rounded, color: _kG1, size: 16),
-                const SizedBox(width: 6),
-                Expanded(child: Text(
-                  'Lat: ${data['lat']?.toStringAsFixed(4)}, Lng: ${data['lng']?.toStringAsFixed(4)}',
-                  style: const TextStyle(color: _kTextDark, fontSize: 12, fontWeight: FontWeight.w500))),
-              ]),
-            ),
-            const SizedBox(height: 16),
-            SizedBox(
-              width: double.infinity,
-              child: InkWell(
-                onTap: () => Navigator.pop(context),
-                borderRadius: BorderRadius.circular(16),
-                child: Container(
-                  height: 48,
-                  decoration: BoxDecoration(gradient: _kGradient, borderRadius: BorderRadius.circular(16)),
-                  child: const Center(child: Text('Close',
-                    style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 15))),
+
+              // ── Text content ─────────────────────────────────────────
+              Padding(
+                padding: const EdgeInsets.fromLTRB(18, 16, 18, 20),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // Spot name
+                    Text(name,
+                      style: const TextStyle(fontSize: 19,
+                          fontWeight: FontWeight.bold, color: _kTextDark,
+                          letterSpacing: -0.3)),
+                    const SizedBox(height: 6),
+
+                    // Municipality chip (only if available)
+                    if (municipality.isNotEmpty) ...[
+                      Row(children: [
+                        const Icon(Icons.location_city_rounded,
+                            color: _kG1, size: 14),
+                        const SizedBox(width: 5),
+                        Text(municipality,
+                          style: const TextStyle(
+                              color: _kTextMuted, fontSize: 13,
+                              fontWeight: FontWeight.w500)),
+                      ]),
+                      const SizedBox(height: 10),
+                    ],
+
+                    // Description
+                    const Text('DESCRIPTION',
+                      style: TextStyle(color: _kTextMuted, fontSize: 10,
+                          fontWeight: FontWeight.bold, letterSpacing: 0.8)),
+                    const SizedBox(height: 4),
+                    Text(description,
+                      maxLines: 3, overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(color: _kTextDark,
+                          fontSize: 14, height: 1.45, fontWeight: FontWeight.w500)),
+
+                    const SizedBox(height: 18),
+
+                    // Get Directions button
+                    SizedBox(
+                      width: double.infinity,
+                      child: InkWell(
+                        onTap: lat != null && lng != null
+                            ? () async {
+                                final uri = Uri.parse(
+                                  'https://www.google.com/maps/search/?api=1&query=$lat,$lng',
+                                );
+                                if (await canLaunchUrl(uri)) {
+                                  await launchUrl(uri,
+                                    mode: LaunchMode.externalApplication);
+                                }
+                              }
+                            : null,
+                        borderRadius: BorderRadius.circular(16),
+                        child: Container(
+                          height: 50,
+                          decoration: BoxDecoration(
+                            gradient: _kGradient,
+                            borderRadius: BorderRadius.circular(16),
+                            boxShadow: [
+                              BoxShadow(
+                                color: _kG1.withValues(alpha: 0.30),
+                                blurRadius: 10, offset: const Offset(0, 4),
+                              )
+                            ],
+                          ),
+                          child: const Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Icon(Icons.directions_rounded,
+                                  color: Colors.white, size: 20),
+                              SizedBox(width: 8),
+                              Text('Get Directions',
+                                style: TextStyle(color: Colors.white,
+                                    fontWeight: FontWeight.bold, fontSize: 15)),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
               ),
-            ),
-          ]),
+            ],
+          ),
         ),
       ),
     );
