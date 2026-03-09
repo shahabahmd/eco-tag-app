@@ -162,42 +162,45 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> {
     _markers.clear();
     _heatmapCircles.clear();
 
-    if (_isHeatmapMode) {
-      const radius = 1000.0;
-      final List<Map<String, dynamic>> clusters = [];
-      for (final rep in reports) {
-        bool added = false;
-        for (final cl in clusters) {
-          if (Geolocator.distanceBetween(rep['lat'], rep['lng'], cl['lat'], cl['lng']) < radius) {
-            cl['count'] = (cl['count'] ?? 1) + 1; added = true; break;
-          }
+    // Build markers — skip resolved issues (their red pin is removed once resolved).
+    // Nature spots and non-resolved issues always get a marker.
+    // Heatmap circles are built from ALL reports for accurate density.
+    for (final d in reports) {
+      final isResolvedIssue = d['type'] == 'issue' && d['status'] == 'resolved';
+      if (isResolvedIssue) continue; // resolved issues: no map pin
+      _markers.add(Marker(
+        markerId: MarkerId(d['id']),
+        position: LatLng(d['lat'], d['lng']),
+        icon: d['type'] == 'nature'
+            ? BitmapDescriptor.defaultMarkerWithHue(100)
+            : BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueRed),
+        onTap: () => _showReportDetails(d),
+      ));
+    }
+
+    const radius = 1000.0;
+    final List<Map<String, dynamic>> clusters = [];
+    for (final rep in reports) {
+      bool added = false;
+      for (final cl in clusters) {
+        if (Geolocator.distanceBetween(rep['lat'], rep['lng'], cl['lat'], cl['lng']) < radius) {
+          cl['count'] = (cl['count'] ?? 1) + 1; added = true; break;
         }
-        if (!added) clusters.add({'lat': rep['lat'], 'lng': rep['lng'], 'count': 1});
       }
-      for (var i = 0; i < clusters.length; i++) {
-        final c = clusters[i];
-        final col = c['count'] >= 5
-            ? Colors.red.withValues(alpha: 0.5)
-            : c['count'] >= 2
-                ? Colors.orange.withValues(alpha: 0.5)
-                : Colors.green.withValues(alpha: 0.5);
-        _heatmapCircles.add(Circle(
-          circleId: CircleId('h$i'),
-          center: LatLng(c['lat'], c['lng']),
-          radius: 800, fillColor: col, strokeWidth: 0,
-        ));
-      }
-    } else {
-      for (final d in reports) {
-        _markers.add(Marker(
-          markerId: MarkerId(d['id']),
-          position: LatLng(d['lat'], d['lng']),
-          icon: d['type'] == 'nature'
-              ? BitmapDescriptor.defaultMarkerWithHue(100)
-              : BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueRed),
-          onTap: () => _showReportDetails(d),
-        ));
-      }
+      if (!added) clusters.add({'lat': rep['lat'], 'lng': rep['lng'], 'count': 1});
+    }
+    for (var i = 0; i < clusters.length; i++) {
+      final c = clusters[i];
+      final col = c['count'] >= 5
+          ? Colors.red.withValues(alpha: 0.5)
+          : c['count'] >= 2
+              ? Colors.orange.withValues(alpha: 0.5)
+              : Colors.green.withValues(alpha: 0.5);
+      _heatmapCircles.add(Circle(
+        circleId: CircleId('h$i'),
+        center: LatLng(c['lat'], c['lng']),
+        radius: 800, fillColor: col, strokeWidth: 0,
+      ));
     }
   }
 

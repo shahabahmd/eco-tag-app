@@ -117,7 +117,10 @@ class _HomePageState extends State<HomePage> {
     for (var doc in snap.docs) {
       final d = doc.data() as Map<String, dynamic>;
       data.add({'id': doc.id, ...d});
-      if (!_isHeatmapMode) {
+      // Skip resolved issues — no red pin should remain on the user's map
+      // after an admin marks the issue as resolved.
+      final isResolvedIssue = d['type'] == 'issue' && d['status'] == 'resolved';
+      if (!_isHeatmapMode && !isResolvedIssue) {
         markers.add(Marker(
           markerId: MarkerId(doc.id),
           position: LatLng(d['lat'], d['lng']),
