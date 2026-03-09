@@ -1,4 +1,4 @@
-# login_web_app
+# eco-tag app
 
 A new Flutter project.
 
